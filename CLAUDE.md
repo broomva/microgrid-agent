@@ -245,30 +245,62 @@ python sim/run.py
 - **No hardware required for CI**: All device interactions go through `SimulatedDevice` in test/CI environments
 - **Deterministic randomness**: Tests seed the random number generator for reproducible simulated readings
 
+## Self-Governance
+
+This project is a **self-governing autonomous agent**. See [docs/genome.md](docs/genome.md) for the full specification.
+
+### Governance Files
+
+| File | Purpose |
+|------|---------|
+| `CLAUDE.md` | Invariants, architecture, conventions (this file) |
+| `AGENTS.md` | Operational rules, boundaries, self-improvement protocol |
+| `.control/policy.yaml` | Machine-readable setpoints, gates, monitors, EGRI config |
+| `.claude/settings.json` | Claude Code hooks (session start/stop, control gates) |
+| `docs/genome.md` | Complete genome specification for autonomous operation |
+
+### Hooks (Claude Code Integration)
+
+| Event | Hook | Purpose |
+|-------|------|---------|
+| `SessionStart` | `scripts/hooks/session-start.sh` | Ground agent in current state (tests, build, git, EGRI) |
+| `Stop` | `scripts/hooks/session-stop.sh` | Log EGRI evaluation metrics to journal |
+| `PreToolUse` | `scripts/hooks/control-gate.sh` | Block force push, warn on secrets/safety edits |
+
+### Control Loops
+
+| Loop | Rate | Script/Module | Purpose |
+|------|------|---------------|---------|
+| L0 | 20s | systemd watchdog | Heartbeat — restart on hang |
+| L1 | 5s | `kernel/src/main.rs` | Dispatch — sense→predict→optimize→actuate |
+| L2 | 6h | `scripts/self-monitor.sh` | Self-monitor — system + agent + EGRI health |
+| L3 | daily | EGRI in `session-stop.sh` | Evaluate — predicted vs actual |
+| L4 | weekly | ML retrain | Adapt — fine-tune models on local data |
+| L5 | opportunistic | `sync.rs` | Fleet sync — when connected |
+| L6 | weekly/on-demand | Claude Code session | Meta-reason — "Am I improving?" |
+
+### EGRI Journal
+
+Metrics logged to `.control/egri-journal.jsonl` after each session:
+- `test_count`: total passing tests (Rust + Python)
+- `kernel_warnings`: cargo check warning count
+- `todo_count`: remaining TODOs in Rust kernel
+- `files_changed`: files modified in session
+
+Direction: test_count↑, kernel_warnings↓, todo_count↓
+
 ## Commands
 
 ```bash
-# Python prototype & ML
-make test          # Run pytest suite (prototype/tests/)
-make simulate      # Run agent in simulation mode
-make lint          # Ruff linter check
-make format        # Ruff auto-format
-make typecheck     # mypy type checking
-
-# Rust kernel
-cd kernel && cargo build --release   # Build production binary
-cd kernel && cargo test              # Run kernel tests
-
-# Simulation framework
-python sim/run.py                    # Run simulation benchmarks
-
-# Deployment
-make deploy-rpi    # Deploy to connected RPi via SSH (requires MICROGRID_HOST env var)
-make docker-build  # Build test container
-make docker-run    # Run test container
-make health        # Run health-check.sh on local or remote RPi
+make test            # All tests (39 Rust + 116 Python)
+make test-rust       # Rust kernel tests only
+make test-python     # Python prototype tests only
+make sim             # Simulation comparison (3 sites × 3 controllers)
+make simulate        # Run prototype in simulation mode
+make lint            # Ruff linter
+make kernel-check    # Verify Rust kernel compiles
+make kernel-build    # Build Rust kernel (release)
+make deploy-rpi      # Deploy to RPi via SSH
+make health          # Run health-check.sh
+make help            # Show all targets
 ```
-
-> **Note**: The Makefile targets for `test` and `lint` currently reference `src/` and `tests/`
-> at the repo root. These paths need updating to `prototype/src/` and `prototype/tests/`
-> to match the current directory structure.
