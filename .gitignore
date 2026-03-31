@@ -1,0 +1,61 @@
+# =============================================================================
+# Microgrid Agent — .gitignore
+# =============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Runtime data (generated at deployment, not committed)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Real site configuration (contains location, device details)
+config/site.toml
+config/devices.toml
+
+# Model files (too large for git)
+*.tflite
+*.onnx
+*.pkl
+*.h5
+*.pb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Coverage & test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Distribution
+*.tar.gz
+*.whl
