@@ -191,3 +191,78 @@ impl MlBridge {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::SensorReadings;
+
+    fn make_bridge() -> MlBridge {
+        MlBridge::new(std::path::Path::new("/tmp/microgrid_test_ml"))
+    }
+
+    fn make_reading(solar: f64, load: f64) -> SensorReadings {
+        SensorReadings {
+            solar_kw: solar,
+            load_kw: load,
+            ..SensorReadings::default()
+        }
+    }
+
+    #[test]
+    fn test_persistence_fallback_empty() {
+        let bridge = make_bridge();
+        let forecast = bridge.persistence_fallback(&[]);
+        // Empty history -> default forecast
+        assert_eq!(forecast.generation_kw.len(), 24);
+        assert_eq!(forecast.demand_kw.len(), 24);
+        assert_eq!(forecast.horizon_hours, 24.0);
+        // All values should be zero (default)
+        assert!(forecast.generation_kw.iter().all(|v| *v == 0.0));
+        assert!(forecast.demand_kw.iter().all(|v| *v == 0.0));
+    }
+
+    #[test]
+    fn test_persistence_fallback_short() {
+        let bridge = make_bridge();
+        let history: Vec<SensorReadings> = (0..10)
+            .map(|i| make_reading(i as f64, (i * 2) as f64))
+            .collect();
+        let forecast = bridge.persistence_fallback(&history);
+        assert_eq!(forecast.generation_kw.len(), 10, "Should use all 10 history points");
+        assert_eq!(forecast.demand_kw.len(), 10);
+        assert_eq!(forecast.horizon_hours, 10.0);
+        // Verify values match input
+        assert!((forecast.generation_kw[0] - 0.0).abs() < f64::EPSILON);
+        assert!((forecast.generation_kw[9] - 9.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_persistence_fallback_full() {
+        let bridge = make_bridge();
+        let history: Vec<SensorReadings> = (0..50)
+            .map(|i| make_reading(i as f64, (i * 2) as f64))
+            .collect();
+        let forecast = bridge.persistence_fallback(&history);
+        assert_eq!(forecast.generation_kw.len(), 24, "Should use last 24 of 50");
+        assert_eq!(forecast.demand_kw.len(), 24);
+        assert_eq!(forecast.horizon_hours, 24.0);
+        // The window should be history[26..50], so first element = 26.0
+        assert!((forecast.generation_kw[0] - 26.0).abs() < f64::EPSILON);
+        assert!((forecast.generation_kw[23] - 49.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_forecast_serialization() {
+        let forecast = Forecast {
+            generation_kw: vec![1.0, 2.0, 3.0],
+            demand_kw: vec![4.0, 5.0, 6.0],
+            horizon_hours: 3.0,
+        };
+        let json = serde_json::to_string(&forecast).unwrap();
+        let deserialized: Forecast = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.generation_kw, vec![1.0, 2.0, 3.0]);
+        assert_eq!(deserialized.demand_kw, vec![4.0, 5.0, 6.0]);
+        assert_eq!(deserialized.horizon_hours, 3.0);
+    }
+}

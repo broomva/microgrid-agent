@@ -190,3 +190,111 @@ fn default_config_dir() -> PathBuf { PathBuf::from("config") }
 fn default_db_path() -> PathBuf { PathBuf::from("data/knowledge.db") }
 fn default_model_dir() -> PathBuf { PathBuf::from("data/models") }
 fn default_sync_queue_dir() -> PathBuf { PathBuf::from("data/sync-queue") }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_load_example_config() {
+        // Build a minimal TOML that matches the Rust struct field names
+        let toml_str = r#"
+[site]
+id = "test-site"
+name = "Test Site"
+region = "TestRegion"
+latitude = 3.86
+longitude = -67.92
+sensor_interval_s = 1.0
+dispatch_interval_s = 5.0
+forecast_interval_s = 900.0
+
+[grid]
+grid_type = "hybrid"
+nominal_voltage = 120.0
+peak_load_kw = 45.0
+priority_loads = ["health_post", "water_pump"]
+
+[solar]
+capacity_kwp = 60.0
+panels = 150
+
+[battery]
+capacity_kwh = 120.0
+max_dod = 0.9
+
+[diesel]
+capacity_kw = 30.0
+fuel_tank_liters = 500.0
+consumption_liters_per_kwh = 0.30
+
+[connectivity]
+primary = "cellular"
+mqtt_broker = "localhost"
+mqtt_port = 1883
+sync_interval_minutes = 15
+offline_buffer_days = 30
+
+[autonomic]
+min_soc_pct = 15.0
+max_soc_pct = 95.0
+diesel_start_soc_pct = 20.0
+diesel_stop_soc_pct = 60.0
+max_diesel_hours_per_day = 16.0
+renewable_target_fraction = 0.85
+
+[community]
+population = 850
+primary_activity = "fishing"
+market_days = ["Wed", "Sat"]
+
+[paths]
+data_dir = "data"
+config_dir = "config"
+db_path = "data/knowledge.db"
+model_dir = "data/models"
+sync_queue_dir = "data/sync-queue"
+"#;
+
+        let dir = std::env::temp_dir().join("microgrid_test_config");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test_site.toml");
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(toml_str.as_bytes()).unwrap();
+
+        let config = SiteConfig::load(&path).unwrap();
+        assert_eq!(config.site.id, "test-site");
+        assert_eq!(config.site.name, "Test Site");
+        assert_eq!(config.solar.capacity_kwp, 60.0);
+        assert_eq!(config.battery.capacity_kwh, 120.0);
+        assert_eq!(config.diesel.capacity_kw, 30.0);
+        assert_eq!(config.autonomic.min_soc_pct, 15.0);
+        assert_eq!(config.grid.priority_loads.len(), 2);
+
+        // cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_default_autonomic() {
+        let autonomic = AutonomicSection::default();
+        assert_eq!(autonomic.min_soc_pct, 20.0);
+        assert_eq!(autonomic.max_soc_pct, 95.0);
+        assert_eq!(autonomic.diesel_start_soc_pct, 25.0);
+        assert_eq!(autonomic.diesel_stop_soc_pct, 60.0);
+        assert_eq!(autonomic.max_diesel_hours_per_day, 16.0);
+        assert_eq!(autonomic.renewable_target_fraction, 0.70);
+        // min < diesel_start < diesel_stop < max
+        assert!(autonomic.min_soc_pct < autonomic.diesel_start_soc_pct);
+        assert!(autonomic.diesel_start_soc_pct < autonomic.diesel_stop_soc_pct);
+        assert!(autonomic.diesel_stop_soc_pct < autonomic.max_soc_pct);
+    }
+
+    #[test]
+    fn test_missing_config_error() {
+        let path = std::path::Path::new("/tmp/nonexistent_microgrid_config_xyz.toml");
+        let result = SiteConfig::load(path);
+        assert!(result.is_err());
+    }
+}

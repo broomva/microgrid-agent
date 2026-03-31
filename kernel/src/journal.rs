@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 use tracing::debug;
 
 use crate::devices::SensorReadings;
@@ -108,9 +108,117 @@ impl EventJournal {
         Ok(seq)
     }
 
+    /// Count the number of entries in the readings table.
+    #[cfg(test)]
+    fn count_readings(&self) -> anyhow::Result<u64> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(READINGS_TABLE)?;
+        Ok(table.len()?)
+    }
+
     // TODO: Add methods for:
     // - `replay_readings(since: DateTime<Utc>) -> impl Iterator<Item = SensorReadings>`
     // - `replay_decisions(since: DateTime<Utc>) -> impl Iterator<Item = DispatchDecision>`
     // - `compact(keep_last_n: usize)` — remove old events to reclaim disk space
     // - `export_csv(path: &Path)` — export to CSV for external analysis
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::SensorReadings;
+    fn temp_journal_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir()
+            .join("microgrid_test_journal")
+            .join(format!("{}.redb", name))
+    }
+
+    #[test]
+    fn test_open_creates_db() {
+        let path = temp_journal_path("open_creates");
+        // Remove if leftover from a previous run
+        let _ = std::fs::remove_file(&path);
+        let journal = EventJournal::open(&path);
+        assert!(journal.is_ok(), "Journal should open/create successfully");
+        assert!(path.exists(), "Database file should exist on disk");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_append_and_sequence() {
+        let path = temp_journal_path("append_seq");
+        let _ = std::fs::remove_file(&path);
+        let journal = EventJournal::open(&path).unwrap();
+
+        // Append 3 readings
+        for _ in 0..3 {
+            let readings = SensorReadings::default();
+            journal.append_readings(&readings).unwrap();
+        }
+
+        // Verify sequence numbers increased
+        let count = journal.count_readings().unwrap();
+        assert_eq!(count, 3, "Should have 3 readings after 3 appends");
+
+        // Append 2 more and verify count grows
+        for _ in 0..2 {
+            journal.append_readings(&SensorReadings::default()).unwrap();
+        }
+        let count2 = journal.count_readings().unwrap();
+        assert_eq!(count2, 5, "Should have 5 readings total");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_readings_roundtrip() {
+        let path = temp_journal_path("readings_rt");
+        let _ = std::fs::remove_file(&path);
+        let journal = EventJournal::open(&path).unwrap();
+
+        let readings = SensorReadings {
+            solar_kw: 7.5,
+            load_kw: 4.2,
+            battery_soc_pct: 65.0,
+            ..SensorReadings::default()
+        };
+        journal.append_readings(&readings).unwrap();
+
+        // Read back via raw redb access
+        let read_txn = journal.db.begin_read().unwrap();
+        let table = read_txn.open_table(READINGS_TABLE).unwrap();
+        let entry = table.get(1u64).unwrap().unwrap();
+        let stored: SensorReadings = serde_json::from_slice(entry.value()).unwrap();
+        assert!((stored.solar_kw - 7.5).abs() < f64::EPSILON);
+        assert!((stored.load_kw - 4.2).abs() < f64::EPSILON);
+        assert!((stored.battery_soc_pct - 65.0).abs() < f64::EPSILON);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_crash_safety() {
+        let path = temp_journal_path("crash_safety");
+        let _ = std::fs::remove_file(&path);
+        let journal = EventJournal::open(&path).unwrap();
+
+        // Write 5 entries
+        for i in 0..5 {
+            let r = SensorReadings {
+                solar_kw: i as f64,
+                ..SensorReadings::default()
+            };
+            journal.append_readings(&r).unwrap();
+        }
+        let count = journal.count_readings().unwrap();
+        assert_eq!(count, 5);
+
+        // Drop and reopen — previous writes should still be there (crash-safe)
+        drop(journal);
+        let journal2 = EventJournal::open(&path).unwrap();
+        let count2 = journal2.count_readings().unwrap();
+        assert_eq!(count2, 5, "Previous writes should survive reopen (crash-safe)");
+
+        let _ = std::fs::remove_file(&path);
+    }
 }

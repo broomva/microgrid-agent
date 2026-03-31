@@ -133,3 +133,77 @@ impl FleetSync {
     // - `queue_depth() -> usize` — count of pending messages
     // - `subscribe(topic: &str)` — subscribe to fleet-wide commands (firmware updates, config changes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ConnectivitySection;
+
+    fn make_test_connectivity() -> ConnectivitySection {
+        ConnectivitySection {
+            primary: "cellular".into(),
+            mqtt_broker: "localhost".into(),
+            mqtt_port: 1883,
+            sync_interval_minutes: 15,
+            offline_buffer_days: 30,
+        }
+    }
+
+    #[test]
+    fn test_queue_to_disk() {
+        let queue_dir = std::env::temp_dir().join("microgrid_test_sync_queue");
+        let _ = std::fs::remove_dir_all(&queue_dir);
+        std::fs::create_dir_all(&queue_dir).unwrap();
+
+        let config = make_test_connectivity();
+        let sync = FleetSync::new(&config, &queue_dir);
+        let payload = b"{\"solar_kw\": 5.0}";
+        sync.queue_to_disk("test-topic", payload).unwrap();
+
+        // Verify a file was written
+        let entries: Vec<_> = std::fs::read_dir(&queue_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(entries.len() >= 1, "At least one file should be queued");
+
+        // Verify the file content matches the payload
+        let content = std::fs::read(entries[0].path()).unwrap();
+        assert_eq!(content, payload);
+
+        let _ = std::fs::remove_dir_all(&queue_dir);
+    }
+
+    #[test]
+    fn test_queue_filename_format() {
+        let queue_dir = std::env::temp_dir().join("microgrid_test_sync_fname");
+        let _ = std::fs::remove_dir_all(&queue_dir);
+        std::fs::create_dir_all(&queue_dir).unwrap();
+
+        let config = make_test_connectivity();
+        let sync = FleetSync::new(&config, &queue_dir);
+        sync.queue_to_disk("metrics", b"test").unwrap();
+
+        let entries: Vec<_> = std::fs::read_dir(&queue_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(entries.len(), 1);
+        let filename = entries[0].file_name().to_string_lossy().to_string();
+        // Format: "{topic}-{timestamp_nanos}.json"
+        assert!(filename.starts_with("metrics-"), "Filename should start with topic: {}", filename);
+        assert!(filename.ends_with(".json"), "Filename should end with .json: {}", filename);
+
+        let _ = std::fs::remove_dir_all(&queue_dir);
+    }
+
+    #[test]
+    fn test_fleet_sync_new() {
+        let queue_dir = std::env::temp_dir().join("microgrid_test_sync_new");
+        let config = make_test_connectivity();
+        let sync = FleetSync::new(&config, &queue_dir);
+        assert_eq!(sync.broker, "localhost");
+        assert_eq!(sync.port, 1883);
+        assert_eq!(sync.queue_dir, queue_dir);
+    }
+}

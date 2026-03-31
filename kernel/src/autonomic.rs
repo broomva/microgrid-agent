@@ -166,3 +166,150 @@ impl AutonomicController {
         decision
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AutonomicSection;
+    use crate::devices::SensorReadings;
+    use crate::dispatch::DispatchDecision;
+    use crate::AgentState;
+
+    fn make_test_config() -> AutonomicSection {
+        AutonomicSection {
+            min_soc_pct: 20.0,
+            max_soc_pct: 95.0,
+            diesel_start_soc_pct: 25.0,
+            diesel_stop_soc_pct: 60.0,
+            max_diesel_hours_per_day: 16.0,
+            renewable_target_fraction: 0.70,
+        }
+    }
+
+    fn make_test_state(soc: f64) -> AgentState {
+        AgentState {
+            latest_readings: SensorReadings {
+                battery_soc_pct: soc,
+                ..SensorReadings::default()
+            },
+            history: vec![],
+            forecast: None,
+        }
+    }
+
+    #[test]
+    fn test_shield_min_soc_blocks_discharge() {
+        let ctrl = AutonomicController::new(&make_test_config());
+        let decision = DispatchDecision {
+            battery_kw: -5.0, // discharging
+            ..DispatchDecision::default()
+        };
+        let state = make_test_state(20.0); // SOC at min
+        let result = ctrl.enforce(decision, &state);
+        assert_eq!(result.battery_kw, 0.0, "Discharge should be blocked at min SOC");
+    }
+
+    #[test]
+    fn test_shield_max_soc_blocks_charge() {
+        let ctrl = AutonomicController::new(&make_test_config());
+        let decision = DispatchDecision {
+            battery_kw: 5.0, // charging
+            ..DispatchDecision::default()
+        };
+        let state = make_test_state(95.0); // SOC at max
+        let result = ctrl.enforce(decision, &state);
+        assert_eq!(result.battery_kw, 0.0, "Charge should be blocked at max SOC");
+    }
+
+    #[test]
+    fn test_shield_diesel_autostart_on_low_soc() {
+        let ctrl = AutonomicController::new(&make_test_config());
+        let decision = DispatchDecision {
+            diesel_kw: 0.0,
+            diesel_start: false,
+            ..DispatchDecision::default()
+        };
+        let state = make_test_state(25.0); // SOC at diesel_start threshold
+        let result = ctrl.enforce(decision, &state);
+        assert!(result.diesel_start, "Diesel should auto-start when SOC <= diesel_start_soc");
+        assert!(result.diesel_kw > 0.0, "Diesel kW should be set when auto-started");
+    }
+
+    #[test]
+    fn test_shield_diesel_autostop_on_high_soc() {
+        let ctrl = AutonomicController::new(&make_test_config());
+        let decision = DispatchDecision {
+            diesel_kw: 5.0, // diesel running
+            diesel_start: true,
+            diesel_stop: false,
+            ..DispatchDecision::default()
+        };
+        let state = make_test_state(60.0); // SOC at diesel_stop threshold
+        let result = ctrl.enforce(decision, &state);
+        assert!(result.diesel_stop, "Diesel should auto-stop when SOC >= diesel_stop_soc");
+        assert_eq!(result.diesel_kw, 0.0, "Diesel kW should be zero after auto-stop");
+    }
+
+    #[test]
+    fn test_no_override_when_safe() {
+        let ctrl = AutonomicController::new(&make_test_config());
+        let decision = DispatchDecision {
+            solar_kw: 5.0,
+            battery_kw: -2.0, // discharging
+            diesel_kw: 0.0,
+            load_shed_kw: 0.0,
+            diesel_start: false,
+            diesel_stop: false,
+            reasoning: "Normal dispatch".into(),
+            overridden: false,
+        };
+        let state = make_test_state(50.0); // healthy SOC
+        let result = ctrl.enforce(decision, &state);
+        assert!(!result.overridden, "No override expected when operating within safe bounds");
+        assert_eq!(result.battery_kw, -2.0, "Battery kW should pass through unchanged");
+    }
+
+    #[test]
+    fn test_override_sets_flag() {
+        let ctrl = AutonomicController::new(&make_test_config());
+        let decision = DispatchDecision {
+            battery_kw: -5.0,
+            reasoning: "Optimizer wants discharge".into(),
+            ..DispatchDecision::default()
+        };
+        let state = make_test_state(15.0); // below min SOC
+        let result = ctrl.enforce(decision, &state);
+        assert!(result.overridden, "Override flag should be set");
+        assert!(
+            result.reasoning.contains("OVERRIDE"),
+            "Reasoning should mention OVERRIDE, got: {}",
+            result.reasoning
+        );
+    }
+
+    #[test]
+    fn test_diesel_runtime_limit() {
+        let config = AutonomicSection {
+            max_diesel_hours_per_day: 0.001, // very small limit for testing
+            ..make_test_config()
+        };
+        let ctrl = AutonomicController::new(&config);
+        // Simulate multiple cycles with diesel running to exceed the limit
+        let state = make_test_state(50.0);
+        let mut last_result = DispatchDecision::default();
+        for _ in 0..100 {
+            let decision = DispatchDecision {
+                diesel_kw: 5.0,
+                diesel_start: true,
+                ..DispatchDecision::default()
+            };
+            last_result = ctrl.enforce(decision, &state);
+        }
+        // After many cycles the limit should be hit
+        assert_eq!(
+            last_result.diesel_kw, 0.0,
+            "Diesel should be forced to stop after runtime limit"
+        );
+        assert!(last_result.diesel_stop, "diesel_stop should be set after limit");
+    }
+}

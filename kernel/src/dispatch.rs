@@ -163,3 +163,138 @@ impl Dispatcher {
         decision
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::SiteConfig;
+    use crate::devices::SensorReadings;
+    use crate::AgentState;
+
+    /// Build a minimal SiteConfig from a TOML string for testing.
+    fn make_test_config(solar_kwp: f64, battery_kwh: f64, diesel_kw: f64, max_dod: f64) -> SiteConfig {
+        let toml_str = format!(
+            r#"
+[site]
+id = "test"
+
+[solar]
+capacity_kwp = {solar_kwp}
+
+[battery]
+capacity_kwh = {battery_kwh}
+max_dod = {max_dod}
+
+[diesel]
+capacity_kw = {diesel_kw}
+"#
+        );
+        toml::from_str(&toml_str).unwrap()
+    }
+
+    fn make_state(solar_kw: f64, load_kw: f64, soc: f64) -> AgentState {
+        AgentState {
+            latest_readings: SensorReadings {
+                solar_kw,
+                load_kw,
+                battery_soc_pct: soc,
+                ..SensorReadings::default()
+            },
+            history: vec![],
+            forecast: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_solar_covers_load() {
+        let config = make_test_config(10.0, 20.0, 10.0, 0.8);
+        let dispatcher = Dispatcher::new(&config);
+        let kg = KnowledgeGraph::open(&std::env::temp_dir().join("mg_test_dispatch_kg1.db")).await.unwrap();
+
+        let state = make_state(5.0, 3.0, 50.0); // solar > load
+        let decision = dispatcher.solve(&state, &kg).await;
+
+        assert!((decision.solar_kw - 3.0).abs() < 0.01, "Solar to load should equal load");
+        assert!(decision.diesel_kw < 0.01, "No diesel needed");
+        assert!(decision.load_shed_kw < 0.01, "No load shedding needed");
+    }
+
+    #[tokio::test]
+    async fn test_battery_covers_shortfall() {
+        let config = make_test_config(10.0, 20.0, 10.0, 0.8);
+        let dispatcher = Dispatcher::new(&config);
+        let kg = KnowledgeGraph::open(&std::env::temp_dir().join("mg_test_dispatch_kg2.db")).await.unwrap();
+
+        // min_soc = (1 - 0.8) * 100 = 20. SOC 50 > 20, so battery can discharge.
+        let state = make_state(2.0, 5.0, 50.0); // solar < load
+        let decision = dispatcher.solve(&state, &kg).await;
+
+        assert!(decision.battery_kw < 0.0, "Battery should discharge (negative kW)");
+        assert!(decision.diesel_kw < 0.01, "No diesel needed when battery can cover");
+    }
+
+    #[tokio::test]
+    async fn test_diesel_starts_when_needed() {
+        let config = make_test_config(10.0, 5.0, 10.0, 0.8);
+        let dispatcher = Dispatcher::new(&config);
+        let kg = KnowledgeGraph::open(&std::env::temp_dir().join("mg_test_dispatch_kg3.db")).await.unwrap();
+
+        // SOC at min (20% = (1-0.8)*100), so battery cannot discharge.
+        // Solar = 0, load = 8 => all unmet by solar/battery, diesel should start
+        let state = make_state(0.0, 8.0, 20.0);
+        let decision = dispatcher.solve(&state, &kg).await;
+
+        assert!(decision.diesel_kw > 0.0, "Diesel should start to cover load");
+        assert!(decision.diesel_start, "diesel_start should be true");
+    }
+
+    #[tokio::test]
+    async fn test_load_shedding() {
+        // Very small diesel capacity
+        let config = make_test_config(0.0, 5.0, 2.0, 0.8);
+        let dispatcher = Dispatcher::new(&config);
+        let kg = KnowledgeGraph::open(&std::env::temp_dir().join("mg_test_dispatch_kg4.db")).await.unwrap();
+
+        // No solar, SOC at min, load = 10 >> diesel capacity (2)
+        let state = make_state(0.0, 10.0, 20.0);
+        let decision = dispatcher.solve(&state, &kg).await;
+
+        assert!(decision.load_shed_kw > 0.0, "Load shedding should occur when all sources are insufficient");
+    }
+
+    #[tokio::test]
+    async fn test_excess_solar_charges_battery() {
+        let config = make_test_config(20.0, 20.0, 10.0, 0.8);
+        let dispatcher = Dispatcher::new(&config);
+        let kg = KnowledgeGraph::open(&std::env::temp_dir().join("mg_test_dispatch_kg5.db")).await.unwrap();
+
+        let state = make_state(10.0, 3.0, 50.0); // excess solar = 7
+        let decision = dispatcher.solve(&state, &kg).await;
+
+        assert!(decision.battery_kw > 0.0, "Excess solar should charge battery (positive kW)");
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_decision_serialization() {
+        let decision = DispatchDecision {
+            solar_kw: 5.5,
+            battery_kw: -2.1,
+            diesel_kw: 3.0,
+            load_shed_kw: 0.5,
+            diesel_start: true,
+            diesel_stop: false,
+            reasoning: "Test reasoning".into(),
+            overridden: true,
+        };
+        let json = serde_json::to_string(&decision).unwrap();
+        let deserialized: DispatchDecision = serde_json::from_str(&json).unwrap();
+        assert!((deserialized.solar_kw - 5.5).abs() < f64::EPSILON);
+        assert!((deserialized.battery_kw - (-2.1)).abs() < f64::EPSILON);
+        assert!((deserialized.diesel_kw - 3.0).abs() < f64::EPSILON);
+        assert!((deserialized.load_shed_kw - 0.5).abs() < f64::EPSILON);
+        assert!(deserialized.diesel_start);
+        assert!(!deserialized.diesel_stop);
+        assert_eq!(deserialized.reasoning, "Test reasoning");
+        assert!(deserialized.overridden);
+    }
+}

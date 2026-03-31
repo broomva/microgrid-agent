@@ -312,3 +312,152 @@ class TestLPDispatch:
 
         # With 60kW battery + 30kW diesel = 90kW capacity, should be feasible
         assert action is not None, "Should find feasible solution for 80kW load"
+
+
+# ===========================================================================
+# Tests for src.dispatch.Dispatcher (production dispatch module)
+# ===========================================================================
+
+from src.dispatch import (
+    Dispatcher,
+    DispatchConfig,
+    DispatchDecision as SrcDispatchDecision,
+    MicrogridState,
+)
+
+
+def _make_state(**overrides) -> MicrogridState:
+    """Build a MicrogridState with sensible defaults."""
+    defaults = dict(
+        solar_available_kw=5.0,
+        demand_kw=5.0,
+        battery_soc_pct=50.0,
+        battery_capacity_kwh=10.0,
+        battery_max_charge_kw=5.0,
+        battery_max_discharge_kw=5.0,
+        diesel_max_kw=5.0,
+        diesel_min_kw=1.0,
+        diesel_running=False,
+        priority_loads_kw=0.0,
+    )
+    defaults.update(overrides)
+    return MicrogridState(**defaults)
+
+
+class TestSrcSolarSurplusChargesBattery:
+    """When solar exceeds demand, battery should charge (src.dispatch)."""
+
+    def test_surplus_solar_charges_battery_rule_dispatch(self):
+        """Rule-based dispatch with solar surplus should charge battery."""
+        config = DispatchConfig(min_soc_pct=20.0, max_soc_pct=95.0)
+        dispatcher = Dispatcher(config)
+        state = _make_state(
+            solar_available_kw=10.0,
+            demand_kw=3.0,
+            battery_soc_pct=50.0,
+        )
+        # Rule-based dispatch explicitly charges battery with excess solar
+        decision = dispatcher._rule_dispatch(state)
+        # battery_kw < 0 means charging in DispatchDecision
+        assert decision.battery_kw < 0, \
+            "Rule dispatch should charge battery with surplus solar"
+        assert decision.solar_kw == pytest.approx(3.0, abs=0.1), \
+            "Should use 3 kW solar to meet demand"
+
+    def test_no_diesel_with_surplus(self):
+        """No diesel needed when solar covers demand."""
+        dispatcher = Dispatcher(DispatchConfig())
+        state = _make_state(solar_available_kw=10.0, demand_kw=3.0, battery_soc_pct=50.0)
+        decision = dispatcher.dispatch(state)
+        assert decision.diesel_kw == pytest.approx(0.0, abs=0.01), \
+            "Diesel should not run with solar surplus"
+
+
+class TestAllSourcesExhaustedShedsLoad:
+    """When all sources exhausted, there should be unserved load."""
+
+    def test_unserved_when_sources_insufficient(self):
+        """Demand exceeding all supply should produce unserved_kw > 0."""
+        dispatcher = Dispatcher(DispatchConfig())
+        state = _make_state(
+            solar_available_kw=1.0,
+            demand_kw=50.0,
+            battery_soc_pct=20.0,  # at min SOC limit
+            battery_max_discharge_kw=2.0,
+            diesel_max_kw=3.0,
+        )
+        decision = dispatcher.dispatch(state)
+        # Total max supply = 1 + 2 + 3 = 6 kW, demand = 50 kW
+        assert decision.unserved_kw > 0, "Should have unserved load when demand >> supply"
+
+    def test_zero_supply_all_unserved(self):
+        """With zero supply, all demand should be unserved."""
+        dispatcher = Dispatcher(DispatchConfig(min_soc_pct=50.0))
+        state = _make_state(
+            solar_available_kw=0.0,
+            demand_kw=5.0,
+            battery_soc_pct=50.0,  # at min SOC
+            diesel_max_kw=0.0,
+        )
+        decision = dispatcher.dispatch(state)
+        assert decision.unserved_kw == pytest.approx(5.0, abs=0.1)
+
+
+class TestDispatchDecisionSerialization:
+    """DispatchDecision.to_dict() produces valid serializable output."""
+
+    def test_to_dict_keys(self):
+        """to_dict should contain all expected keys."""
+        d = SrcDispatchDecision(
+            solar_kw=3.0, battery_kw=1.0, diesel_kw=0.0,
+            curtailed_kw=0.5, unserved_kw=0.0, soc_pct=60.0,
+        )
+        result = d.to_dict()
+        expected_keys = {"solar_kw", "battery_kw", "diesel_kw", "curtailed_kw",
+                         "unserved_kw", "soc_pct", "method", "timestamp"}
+        assert set(result.keys()) == expected_keys
+
+    def test_to_dict_values_rounded(self):
+        """Numeric values should be rounded for clean output."""
+        d = SrcDispatchDecision(
+            solar_kw=3.14159, battery_kw=-1.23456, diesel_kw=0.0,
+            curtailed_kw=0.0, unserved_kw=0.0, soc_pct=50.12345,
+        )
+        result = d.to_dict()
+        assert result["solar_kw"] == 3.142  # 3 decimal places
+        assert result["soc_pct"] == 50.12  # 2 decimal places
+
+    def test_to_dict_json_serializable(self):
+        """to_dict output should be JSON serializable."""
+        import json
+        d = SrcDispatchDecision(
+            solar_kw=3.0, battery_kw=1.0, diesel_kw=0.0,
+            curtailed_kw=0.0, unserved_kw=0.0, soc_pct=60.0,
+        )
+        serialized = json.dumps(d.to_dict())
+        assert isinstance(serialized, str)
+        parsed = json.loads(serialized)
+        assert parsed["solar_kw"] == 3.0
+
+    def test_method_field(self):
+        """DispatchDecision should carry the method used (lp or rules)."""
+        d_lp = SrcDispatchDecision(
+            solar_kw=0, battery_kw=0, diesel_kw=0,
+            curtailed_kw=0, unserved_kw=0, soc_pct=50, method="lp",
+        )
+        assert d_lp.to_dict()["method"] == "lp"
+
+        d_rules = SrcDispatchDecision(
+            solar_kw=0, battery_kw=0, diesel_kw=0,
+            curtailed_kw=0, unserved_kw=0, soc_pct=50, method="rules",
+        )
+        assert d_rules.to_dict()["method"] == "rules"
+
+    def test_rule_dispatch_fallback(self):
+        """Dispatcher._rule_dispatch should work as a fallback."""
+        dispatcher = Dispatcher(DispatchConfig())
+        state = _make_state(solar_available_kw=5.0, demand_kw=3.0, battery_soc_pct=50.0)
+        decision = dispatcher._rule_dispatch(state)
+        assert decision.method == "rules"
+        assert decision.solar_kw >= 0
+        assert decision.unserved_kw >= 0

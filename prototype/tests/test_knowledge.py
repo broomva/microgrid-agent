@@ -3,8 +3,9 @@ Tests for the knowledge graph.
 
 Covers:
 - Entity and relation CRUD operations
-- Recursive CTE graph traversal
-- Pattern learning from observations
+- Recursive CTE graph traversal (including via src.knowledge.KnowledgeGraph)
+- Pattern learning from observations (including async update_hourly_pattern)
+- Priority loads ordering
 """
 
 import json
@@ -13,6 +14,7 @@ import os
 import tempfile
 
 import pytest
+import aiosqlite
 
 
 # ---------------------------------------------------------------------------
@@ -20,7 +22,7 @@ import pytest
 # ---------------------------------------------------------------------------
 
 SCHEMA_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     "schema",
     "knowledge-graph.sql",
 )
@@ -490,3 +492,185 @@ class TestPatternLearning:
         assert row["peak"] == 15.0, "Peak should be 15kW (5 base + 10 day)"
         assert row["min_load"] == 5.0, "Minimum should be 5kW (night base)"
         assert row["daily_avg"] > 5.0, "Daily average should be above night base"
+
+
+# ===========================================================================
+# Async KnowledgeGraph Tests (src.knowledge)
+# ===========================================================================
+
+from src.knowledge import KnowledgeGraph, Entity
+
+
+@pytest.fixture
+async def kg(tmp_path):
+    """Create a temporary KnowledgeGraph instance."""
+    db_path = tmp_path / "test_kg.db"
+    graph = KnowledgeGraph(db_path)
+    await graph.open()
+    yield graph
+    await graph.close()
+
+
+class TestRecursiveCteTraversal:
+    """Test recursive CTE traversal via async KnowledgeGraph.query_affected()."""
+
+    @pytest.mark.asyncio
+    async def test_query_affected_finds_downstream(self, kg):
+        """query_affected should find entities downstream via relations."""
+        await kg.add_entity("bus-1", "bus", "Main Bus")
+        await kg.add_entity("load-1", "load", "Hospital", priority=2)
+        await kg.add_entity("load-2", "load", "School", priority=1)
+        await kg.add_relation("bus-1", "load-1", "feeds")
+        await kg.add_relation("bus-1", "load-2", "feeds")
+
+        affected = await kg.query_affected("bus-1", max_depth=3)
+        affected_ids = {e.id for e in affected}
+        assert "load-1" in affected_ids
+        assert "load-2" in affected_ids
+
+    @pytest.mark.asyncio
+    async def test_query_affected_multi_hop(self, kg):
+        """Multi-hop traversal: A -> B -> C should find C from A."""
+        await kg.add_entity("A", "bus", "Bus A")
+        await kg.add_entity("B", "bus", "Bus B")
+        await kg.add_entity("C", "load", "Load C", priority=1)
+        await kg.add_relation("A", "B", "feeds")
+        await kg.add_relation("B", "C", "feeds")
+
+        affected = await kg.query_affected("A", max_depth=3)
+        affected_ids = {e.id for e in affected}
+        assert "B" in affected_ids
+        assert "C" in affected_ids
+
+    @pytest.mark.asyncio
+    async def test_query_affected_respects_depth(self, kg):
+        """Traversal should not go beyond max_depth."""
+        await kg.add_entity("A", "bus", "A")
+        await kg.add_entity("B", "bus", "B")
+        await kg.add_entity("C", "bus", "C")
+        await kg.add_entity("D", "load", "D")
+        await kg.add_relation("A", "B", "feeds")
+        await kg.add_relation("B", "C", "feeds")
+        await kg.add_relation("C", "D", "feeds")
+
+        # depth=2 should find B and C but not D (which is 3 hops)
+        affected = await kg.query_affected("A", max_depth=2)
+        affected_ids = {e.id for e in affected}
+        assert "B" in affected_ids
+        assert "C" in affected_ids
+        assert "D" not in affected_ids
+
+    @pytest.mark.asyncio
+    async def test_query_affected_empty(self, kg):
+        """Entity with no outgoing relations should return empty list."""
+        await kg.add_entity("orphan", "device", "Lone Device")
+        affected = await kg.query_affected("orphan")
+        assert len(affected) == 0
+
+
+class TestPatternLearningUpdatesStats:
+    """Pattern learning via update_hourly_pattern updates running stats."""
+
+    @pytest.mark.asyncio
+    async def test_first_observation_creates_pattern(self, kg):
+        """First call to update_hourly_pattern should create a new pattern row."""
+        await kg.add_entity("load-x", "load", "Test Load")
+        await kg.update_hourly_pattern("load-x", hour=10, value=5.0)
+
+        cursor = await kg._db.execute(
+            "SELECT avg_value, sample_count FROM patterns WHERE entity_id = 'load-x' AND hour_of_day = 10"
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row["avg_value"] == pytest.approx(5.0)
+        assert row["sample_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_multiple_observations_update_mean(self, kg):
+        """Multiple observations should update the running average."""
+        await kg.add_entity("load-y", "load", "Test Load Y")
+        await kg.update_hourly_pattern("load-y", hour=14, value=10.0)
+        await kg.update_hourly_pattern("load-y", hour=14, value=12.0)
+        await kg.update_hourly_pattern("load-y", hour=14, value=11.0)
+
+        cursor = await kg._db.execute(
+            "SELECT avg_value, sample_count FROM patterns WHERE entity_id = 'load-y' AND hour_of_day = 14"
+        )
+        row = await cursor.fetchone()
+        assert row["sample_count"] == 3
+        assert row["avg_value"] == pytest.approx(11.0, abs=0.1)
+
+    @pytest.mark.asyncio
+    async def test_load_observation_updates_entity(self, kg):
+        """update_load_observation should update entity avg_load_kw."""
+        await kg.add_entity("load-z", "load", "Test Load Z")
+        await kg.update_load_observation("load-z", 5.0)
+        await kg.update_load_observation("load-z", 7.0)
+
+        entity = await kg.get_entity("load-z")
+        assert entity is not None
+        assert entity.avg_load_kw == pytest.approx(6.0, abs=0.1)
+
+    @pytest.mark.asyncio
+    async def test_std_updates_with_observations(self, kg):
+        """Standard deviation should become non-zero with varying observations."""
+        await kg.add_entity("load-std", "load", "Std Test")
+        await kg.update_load_observation("load-std", 2.0)
+        await kg.update_load_observation("load-std", 8.0)
+        await kg.update_load_observation("load-std", 5.0)
+
+        entity = await kg.get_entity("load-std")
+        assert entity.std_load_kw > 0.0
+
+
+class TestPriorityLoadsOrdering:
+    """Priority loads should be returned in descending priority order."""
+
+    @pytest.mark.asyncio
+    async def test_priority_loads_descending(self, kg):
+        """get_priority_loads should return loads ordered by priority DESC."""
+        await kg.add_entity("l-low", "load", "Low Priority", priority=1)
+        await kg.add_entity("l-mid", "load", "Mid Priority", priority=3)
+        await kg.add_entity("l-high", "load", "High Priority", priority=5)
+        await kg.add_entity("l-normal", "load", "Normal", priority=0)
+
+        loads = await kg.get_priority_loads(min_priority=1)
+        assert len(loads) == 3  # excludes priority=0
+        assert loads[0].priority >= loads[1].priority >= loads[2].priority
+        assert loads[0].id == "l-high"
+
+    @pytest.mark.asyncio
+    async def test_priority_loads_min_filter(self, kg):
+        """min_priority filter should exclude lower priority loads."""
+        await kg.add_entity("l1", "load", "L1", priority=1)
+        await kg.add_entity("l2", "load", "L2", priority=2)
+        await kg.add_entity("l3", "load", "L3", priority=3)
+
+        loads = await kg.get_priority_loads(min_priority=2)
+        assert len(loads) == 2
+        assert all(e.priority >= 2 for e in loads)
+
+    @pytest.mark.asyncio
+    async def test_total_priority_load_kw(self, kg):
+        """get_total_priority_load_kw should sum avg_load_kw of priority loads."""
+        await kg.add_entity("lp1", "load", "LP1", priority=2)
+        await kg.add_entity("lp2", "load", "LP2", priority=1)
+        await kg.add_entity("lp0", "load", "LP0", priority=0)  # excluded
+
+        # Simulate observations to set avg_load_kw
+        await kg.update_load_observation("lp1", 3.0)
+        await kg.update_load_observation("lp2", 5.0)
+        await kg.update_load_observation("lp0", 10.0)  # should not be counted
+
+        total = await kg.get_total_priority_load_kw(min_priority=1)
+        assert total == pytest.approx(8.0, abs=0.1)
+
+    @pytest.mark.asyncio
+    async def test_non_load_entities_excluded(self, kg):
+        """Only 'load' kind entities should be returned by get_priority_loads."""
+        await kg.add_entity("dev1", "device", "Solar Panel", priority=5)
+        await kg.add_entity("load1", "load", "Hospital", priority=5)
+
+        loads = await kg.get_priority_loads(min_priority=1)
+        assert len(loads) == 1
+        assert loads[0].id == "load1"

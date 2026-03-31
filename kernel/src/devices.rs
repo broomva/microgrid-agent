@@ -179,3 +179,92 @@ impl DeviceRegistry {
         self.device.actuate(decision).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sensor_readings_default() {
+        let r = SensorReadings::default();
+        assert_eq!(r.solar_kw, 0.0);
+        assert_eq!(r.load_kw, 0.0);
+        assert_eq!(r.battery_soc_pct, 50.0);
+        assert_eq!(r.battery_kw, 0.0);
+        assert_eq!(r.diesel_kw, 0.0);
+        assert_eq!(r.irradiance_wm2, 0.0);
+        assert_eq!(r.temperature_c, 25.0);
+        // Default SOC should be mid-range (sane starting point)
+        assert!(r.battery_soc_pct > 0.0 && r.battery_soc_pct <= 100.0);
+    }
+
+    #[test]
+    fn test_sensor_readings_serialization() {
+        let r = SensorReadings {
+            timestamp: chrono::Utc::now(),
+            solar_kw: 5.5,
+            load_kw: 3.2,
+            battery_soc_pct: 72.0,
+            battery_kw: 2.3,
+            diesel_kw: 0.0,
+            irradiance_wm2: 850.0,
+            temperature_c: 31.5,
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        let deserialized: SensorReadings = serde_json::from_str(&json).unwrap();
+        assert!((deserialized.solar_kw - 5.5).abs() < f64::EPSILON);
+        assert!((deserialized.load_kw - 3.2).abs() < f64::EPSILON);
+        assert!((deserialized.battery_soc_pct - 72.0).abs() < f64::EPSILON);
+        assert!((deserialized.battery_kw - 2.3).abs() < f64::EPSILON);
+        assert!((deserialized.diesel_kw - 0.0).abs() < f64::EPSILON);
+        assert!((deserialized.irradiance_wm2 - 850.0).abs() < f64::EPSILON);
+        assert!((deserialized.temperature_c - 31.5).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn test_simulated_device_solar_curve() {
+        let device = SimulatedDevice::new(10.0, 3.0);
+        let readings = device.read().await.unwrap();
+        // Solar must be >= 0 (never negative)
+        assert!(readings.solar_kw >= 0.0);
+        // Solar must not exceed capacity
+        assert!(readings.solar_kw <= 10.0 + 0.01);
+        // Irradiance must be >= 0
+        assert!(readings.irradiance_wm2 >= 0.0);
+        // Irradiance should not exceed ~1000 W/m^2
+        assert!(readings.irradiance_wm2 <= 1001.0);
+    }
+
+    #[tokio::test]
+    async fn test_simulated_device_soc_bounds() {
+        let device = SimulatedDevice::new(10.0, 3.0);
+        // Simulate a large discharge
+        let decision = DispatchDecision {
+            battery_kw: -100.0, // very large discharge
+            ..DispatchDecision::default()
+        };
+        device.actuate(&decision).await.unwrap();
+        let soc = *device.battery_soc.lock().unwrap();
+        assert!(soc >= 0.0, "SOC must not go below 0");
+        assert!(soc <= 100.0, "SOC must not go above 100");
+
+        // Simulate a large charge
+        let device2 = SimulatedDevice::new(10.0, 3.0);
+        *device2.battery_soc.lock().unwrap() = 99.9;
+        let charge_decision = DispatchDecision {
+            battery_kw: 100.0, // very large charge
+            ..DispatchDecision::default()
+        };
+        device2.actuate(&charge_decision).await.unwrap();
+        let soc2 = *device2.battery_soc.lock().unwrap();
+        assert!(soc2 <= 100.0, "SOC must not exceed 100 after charge");
+    }
+
+    #[test]
+    fn test_device_registry_simulate_mode() {
+        let dir = std::env::temp_dir().join("microgrid_test_devices");
+        std::fs::create_dir_all(&dir).unwrap();
+        let registry = DeviceRegistry::from_config(&dir, true);
+        assert!(registry.is_ok(), "from_config with simulate=true should succeed");
+    }
+}
