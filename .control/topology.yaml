@@ -1,7 +1,7 @@
 # microgrid-agent — Repository Topology
 # Maps the structure for control-metalayer navigation.
 
-version: "1.0"
+version: "1.1"
 
 modules:
   kernel:
@@ -12,28 +12,28 @@ modules:
     tests: "kernel/src/ (inline #[cfg(test)])"
     critical: true
 
-  prototype:
-    path: "prototype/src/"
+  reference:
+    path: "reference/src/"
     language: python
-    role: "Reference implementation — hackable, used for prototyping and simulation"
-    entry: "prototype/main.py"
-    tests: "prototype/tests/"
+    role: "Frozen reference implementation — read-only, used for testing and validation"
+    entry: "reference/main.py"
+    tests: "reference/tests/"
     critical: false
 
-  ml:
-    path: "ml/"
+  forecast:
+    path: "forecast/"
     language: python
-    role: "ML worker — LSTM forecast inference, spawned by kernel on demand"
-    entry: "ml/worker.py"
-    tests: "prototype/tests/test_agent.py (integration)"
+    role: "ML forecast worker — LSTM inference, spawned by kernel via IPC"
+    entry: "forecast/worker.py"
+    tests: "reference/tests/test_forecast.py"
     critical: false
 
-  sim:
-    path: "sim/"
+  simulation:
+    path: "simulation/"
     language: python
-    role: "Simulation framework — benchmarking controllers across sites"
-    entry: "sim/run.py"
-    tests: "sim/ (self-validating — metrics comparison)"
+    role: "Simulation & benchmarking — compares controller strategies across sites"
+    entry: "simulation/run.py"
+    tests: "simulation/ (self-validating — metrics comparison)"
     critical: false
 
   config:
@@ -43,18 +43,15 @@ modules:
 
   governance:
     path: ".control/"
-    role: "Control metalayer — policy, commands, topology, EGRI journal"
+    role: "Control metalayer — policy, commands, topology, EGRI, schemas, evals"
     files:
       - policy.yaml
       - commands.yaml
       - topology.yaml
       - egri-journal.jsonl
+      - schemas/
+      - evals/
     critical: true
-
-  schemas:
-    path: "schemas/"
-    role: "Typed interfaces — state, action, trace, evaluator JSON schemas"
-    critical: false
 
   hooks:
     path: "scripts/hooks/"
@@ -72,20 +69,19 @@ modules:
 
   docs:
     path: "docs/"
-    role: "Architecture docs, conversations, genome"
+    role: "Architecture, genome, conversations"
     critical: false
 
 dependencies:
   kernel:
     - config
-    - ml  # IPC bridge to Python ML worker
+    - forecast  # IPC bridge to Python forecast worker
 
-  prototype:
+  reference:
     - config
-    - ml
+    - forecast
 
-  sim:
-    - prototype
+  simulation: []  # Independent — has its own controller implementations
 
   hooks:
     - governance

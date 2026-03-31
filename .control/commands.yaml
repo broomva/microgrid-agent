@@ -28,12 +28,12 @@ commands:
 
   # ── Simulation ─────────────────────────────────────
   sim:
-    run: "python -m sim.run"
+    run: "python -m simulation.run"
     description: "Full simulation comparison (3 sites x 3 controllers)"
     when: "on-demand, pre-release"
 
   sim-quick:
-    run: "python -m sim.run --site coqui"
+    run: "python -m simulation.run --site coqui"
     description: "Quick simulation (Coqui site only)"
     when: "session-start, quick-check"
 

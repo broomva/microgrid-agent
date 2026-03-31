@@ -31,7 +31,7 @@ check "CLAUDE.md exists" test -f CLAUDE.md
 check "AGENTS.md exists" test -f AGENTS.md
 check "METALAYER.md exists" test -f METALAYER.md
 check ".control/policy.yaml exists" test -f .control/policy.yaml
-check "schemas/ directory exists" test -d schemas
+check ".control/schemas/ directory exists" test -d .control/schemas
 echo ""
 
 # Section 2: Control Plane
@@ -53,7 +53,7 @@ echo ""
 # Section 4: Quality
 echo "4. Quality"
 check "Kernel compiles" bash -c "cd kernel && cargo check 2>&1 | grep -qv 'error\['"
-check "Python tests pass" bash -c "cd prototype && python -m pytest tests/ -q --tb=no 2>&1 | grep -q 'passed'"
+check "Python tests pass" bash -c "cd reference && python -m pytest tests/ -q --tb=no 2>&1 | grep -q 'passed'"
 echo ""
 
 # Section 5: Documentation

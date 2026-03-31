@@ -210,7 +210,7 @@ claude --print \
 
       Review the EGRI journal at .control/egri-journal.jsonl.
       Review the last 7 days of self-monitor reports in data/self-monitor/.
-      Review the simulation results via: python -m sim.run --site coqui
+      Review the simulation results via: python -m simulation.run --site coqui
 
       Answer:
       1. Is the agent improving over time? (test count, warnings, sim performance)

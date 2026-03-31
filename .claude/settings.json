@@ -18,6 +18,11 @@
           {
             "type": "command",
             "command": "bash scripts/hooks/session-stop.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/conversation-bridge-hook.sh",
+            "timeout": 5
           }
         ]
       }

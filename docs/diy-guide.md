@@ -2,7 +2,7 @@
 
 This guide walks you through building, configuring, and deploying a microgrid-agent node from scratch. No prior experience with energy systems or embedded Linux is required.
 
-> **Two paths**: This guide uses the **Python prototype** for quick setup and experimentation.
+> **Two paths**: This guide uses the **Python reference implementation** (`reference/`) for quick setup and experimentation.
 > For production deployments, the **Rust kernel** (`kernel/`) provides the same capabilities
 > as a single static binary with no runtime dependencies. The Rust kernel also supports
 > the agentic reasoning core (BitNet 2B LLM for on-device decision making) -- see
@@ -566,7 +566,7 @@ python -m microgrid_agent.sync --force --config config/site.toml
 
 ## Next Steps
 
-- **Switch to the Rust kernel**: Once comfortable with the Python prototype, deploy the Rust kernel (`kernel/`) for production -- it is a single ~15MB binary with no runtime dependencies, lower memory usage, and faster startup. See [architecture.md](architecture.md) for the full three-plane architecture.
+- **Switch to the Rust kernel**: Once comfortable with the Python reference implementation, deploy the Rust kernel (`kernel/`) for production -- it is a single ~15MB binary with no runtime dependencies, lower memory usage, and faster startup. See [architecture.md](architecture.md) for the full three-plane architecture.
 - **Enable agentic reasoning**: The Rust kernel supports BitNet 2B as an on-device LLM reasoning core (~0.4 GB RAM, 29ms per token). The agent reasons about the situation and uses the LSTM forecast and LP dispatch as tools, rather than following a fixed control loop. See [architecture.md](architecture.md) for the tiered reasoning architecture.
 - **Join the community**: Open issues on GitHub for questions, bug reports, or feature requests
 - **Share your data**: Anonymized operational data from field deployments helps improve the forecasting models for everyone

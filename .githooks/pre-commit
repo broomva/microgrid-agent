@@ -9,8 +9,7 @@ echo "=== Pre-commit: smoke test ==="
 
 # G2: All tests must pass
 echo "Running tests..."
-make test-python 2>&1 | tail -3
-cd kernel && cargo test 2>&1 | tail -1 && cd ..
+make test 2>&1 | tail -5
 
 # G3: Kernel must compile
 echo "Checking kernel compilation..."

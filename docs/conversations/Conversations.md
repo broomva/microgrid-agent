@@ -6,13 +6,16 @@
 
 ---
 
-## 2026-03-31 — Bootstrap session
+## 2026-03-31 — Bootstrap & restructure session
 
 **Branch:** `main`
-**Focus:** System health audit — hooks, memory, conversation bridge
+**Focus:** Full governance bootstrap + project restructure
 **Outcomes:**
 - Fixed `session-stop.sh` macOS compatibility (`grep -oP` → `sed`-based parsing)
-- Bootstrapped Claude auto-memory system (MEMORY.md + 3 memory files)
+- Bootstrapped Claude auto-memory system (MEMORY.md + memory files)
 - Created `docs/conversations/` with this index
-- EGRI journal had first entry but with `test_count=0` due to the hook bug — now fixed
-- Current metrics: 39 Rust tests, 116 Python tests, 25 kernel warnings, 17 TODOs
+- Installed full control metalayer (METALAYER.md, schemas, audit scripts, githooks)
+- **Project restructure**: `prototype/` → `reference/`, `sim/` → `simulation/`, `ml/` → `forecast/`, `schema/`+`schemas/` → `.control/schemas/`, `evals/` → `.control/evals/`, deleted empty `src/`
+- Installed conversation bridge (conversation-history.py + Stop hook)
+- All paths updated across CLAUDE.md, AGENTS.md, METALAYER.md, README.md, Makefile, hooks, policy, topology, evals, genome, diy-guide
+- **Verification**: 116 Python tests pass, 39 Rust tests pass, control-audit 19/19, bstack-check 13/13

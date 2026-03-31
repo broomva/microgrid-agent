@@ -61,15 +61,15 @@ test: test-rust test-python
 test-rust:
 	cd kernel && cargo test
 
-## Run Python prototype tests
+## Run Python reference tests
 test-python:
-	$(PYTEST) prototype/tests/ -v --tb=short
+	$(PYTEST) reference/tests/ -v --tb=short
 
 ## Run tests with coverage report
 test-cov:
-	$(PYTEST) prototype/tests/ -v --tb=short --cov=prototype/src --cov-report=term-missing
+	$(PYTEST) reference/tests/ -v --tb=short --cov=prototype/src --cov-report=term-missing
 
-## Run a single test file (usage: make test-one FILE=prototype/tests/test_devices.py)
+## Run a single test file (usage: make test-one FILE=reference/tests/test_devices.py)
 test-one:
 	$(PYTEST) $(FILE) -v --tb=long
 
@@ -79,16 +79,16 @@ test-one:
 
 ## Run ruff linter
 lint:
-	$(RUFF) check prototype/src/ prototype/tests/ ml/ sim/
+	$(RUFF) check reference/src/ reference/tests/ forecast/ simulation/
 
 ## Auto-format code with ruff
 format:
-	$(RUFF) format prototype/src/ prototype/tests/ ml/ sim/
-	$(RUFF) check --fix prototype/src/ prototype/tests/ ml/ sim/
+	$(RUFF) format reference/src/ reference/tests/ forecast/ simulation/
+	$(RUFF) check --fix reference/src/ reference/tests/ forecast/ simulation/
 
 ## Run mypy type checker
 typecheck:
-	$(VENV)/bin/mypy prototype/src/ --ignore-missing-imports
+	$(VENV)/bin/mypy reference/src/ --ignore-missing-imports
 
 ## Check Rust kernel compiles
 kernel-check:
@@ -104,11 +104,11 @@ kernel-build:
 
 ## Run agent in simulation mode (no hardware required)
 simulate:
-	cd prototype && $(PYTHON) main.py --config ../config/site.example.toml --simulate
+	cd reference && $(PYTHON) main.py --config ../config/site.example.toml --simulate
 
 ## Run simulation comparison framework (3 sites × 3 controllers)
 sim:
-	$(PYTHON) -m sim.run
+	$(PYTHON) -m simulation.run
 
 ## Run agent in shadow mode (read sensors, don't control)
 shadow:
@@ -202,8 +202,8 @@ bstack-check:
 
 ## Clean build artifacts
 clean:
-	rm -rf __pycache__ prototype/src/__pycache__ prototype/tests/__pycache__ ml/__pycache__ sim/__pycache__
-	rm -rf .pytest_cache prototype/.pytest_cache .mypy_cache .ruff_cache
+	rm -rf __pycache__ reference/src/__pycache__ reference/tests/__pycache__ forecast/__pycache__ simulation/__pycache__ reference/__pycache__
+	rm -rf .pytest_cache reference/.pytest_cache .mypy_cache .ruff_cache
 	rm -rf *.egg-info dist build
 	rm -rf htmlcov .coverage
 
@@ -227,7 +227,7 @@ help:
 	@echo "  Testing:"
 	@echo "    make test          Run all tests (Rust + Python)"
 	@echo "    make test-rust     Run Rust kernel tests only"
-	@echo "    make test-python   Run Python prototype tests only"
+	@echo "    make test-python   Run Python reference tests only"
 	@echo "    make test-cov      Run Python tests with coverage"
 	@echo "    make lint          Run ruff linter"
 	@echo "    make format        Auto-format code"
@@ -236,7 +236,7 @@ help:
 	@echo "    make kernel-build  Build Rust kernel (release)"
 	@echo ""
 	@echo "  Running:"
-	@echo "    make simulate      Run prototype in simulation mode"
+	@echo "    make simulate      Run reference agent in simulation mode"
 	@echo "    make sim           Run simulation comparison (3 sites × 3 controllers)"
 	@echo "    make shadow        Run in shadow mode (observe only)"
 	@echo "    make run           Run in active mode (production)"

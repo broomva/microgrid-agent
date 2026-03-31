@@ -31,7 +31,7 @@ check "CLAUDE.md" test -f CLAUDE.md
 check "AGENTS.md" test -f AGENTS.md
 check "METALAYER.md" test -f METALAYER.md
 check ".control/policy.yaml" test -f .control/policy.yaml
-check "schemas/ directory" test -d schemas
+check ".control/schemas/ directory" test -d .control/schemas
 echo ""
 
 # Hooks (3 Claude Code + 1 git)

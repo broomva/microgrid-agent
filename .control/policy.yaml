@@ -82,7 +82,7 @@ monitors:
 
   sim_regression:
     schedule: "daily"
-    command: "python -m sim.run --site coqui 2>&1 | grep 'renewable'"
+    command: "python -m simulation.run --site coqui 2>&1 | grep 'renewable'"
     baseline: "renewable_fraction > 18%"
     on_regression: "alert: simulation regression detected"
 
@@ -107,7 +107,7 @@ egri:
       direction: "increase"  # More tests = better
 
     - name: "sim_renewable_coqui"
-      source: "python -m sim.run --site coqui 2>&1 | grep forecast+kg | awk '{print $4}'"
+      source: "python -m simulation.run --site coqui 2>&1 | grep forecast+kg | awk '{print $4}'"
       direction: "increase"  # Higher renewable fraction = better
 
     - name: "kernel_warnings"

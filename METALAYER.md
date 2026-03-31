@@ -63,7 +63,7 @@ The deterministic dispatcher converts `theta_t` + `x_t` into `u_t` via LP optimi
 | T0 | Safety reflex | 100ms | No | `autonomic.rs` / `autonomic.py` — hard gates G1-G4 |
 | T1 | Device polling | 1s | No | `devices.rs` / `devices.py` — sensor reads |
 | T2 | LP dispatch | 15min | No | `dispatch.rs` / `dispatch.py` — constrained optimizer |
-| T3 | Forecast | 15min | No | `ml/forecast.py` — LSTM inference |
+| T3 | Forecast | 15min | No | `forecast/forecast.py` — LSTM inference |
 | T4 | Supervisory | 15min | Yes (BitNet 2B) | Edge LLM — mode selection, setpoint tuning |
 | T5 | Strategic | hourly | Yes (Qwen 3B) | Deeper reasoning — schedule planning |
 | T6 | Meta-reasoning | daily | Yes (Claude API) | EGRI evaluation, self-improvement |
@@ -100,7 +100,7 @@ b_t = {
 }
 ```
 
-Updated every dispatch cycle (15min). Forecasts from LSTM model in `ml/forecast.py`.
+Updated every dispatch cycle (15min). Forecasts from LSTM model in `forecast/forecast.py`.
 
 ---
 

@@ -11,7 +11,7 @@ BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 # Collect EGRI metrics (POSIX-compatible — no GNU grep -oP)
 TEST_COUNT=0
 RUST_TESTS=$(cd kernel && cargo test 2>&1 | grep 'test result' | sed 's/.*ok\. //' | sed 's/ passed.*//' | head -1 || echo "0")
-PYTHON_TESTS=$(cd prototype && python -m pytest tests/ -q --tb=no 2>&1 | grep 'passed' | sed 's/ passed.*//' | sed 's/.* //' | head -1 || echo "0")
+PYTHON_TESTS=$(cd reference && python -m pytest tests/ -q --tb=no 2>&1 | grep 'passed' | sed 's/ passed.*//' | sed 's/.* //' | head -1 || echo "0")
 # Ensure numeric values
 RUST_TESTS=${RUST_TESTS:-0}
 PYTHON_TESTS=${PYTHON_TESTS:-0}
