@@ -4,18 +4,20 @@
 # Targets for development, testing, deployment, and operations.
 # =============================================================================
 
-.PHONY: test test-cov test-one simulate shadow run lint format typecheck \
+.PHONY: test test-rust test-python test-cov test-one simulate sim shadow run \
+        lint format typecheck \
         deploy-rpi install-service status-rpi logs-rpi \
         docker-build docker-run docker-test \
+        kernel-build kernel-check \
         health install install-rpi dev clean distclean help
 
 # Configuration
 PYTHON       ?= python3
 VENV         ?= .venv
 PIP          := $(VENV)/bin/pip
-PYTEST       := $(VENV)/bin/pytest
-RUFF         := $(VENV)/bin/ruff
-AGENT        := $(VENV)/bin/python -m microgrid_agent
+PYTEST       := $(shell command -v $(VENV)/bin/pytest 2>/dev/null || echo pytest)
+RUFF         := $(shell command -v $(VENV)/bin/ruff 2>/dev/null || echo ruff)
+AGENT        := $(PYTHON)
 
 # RPi deployment (set MICROGRID_HOST=user@hostname or legacy HOST=ip)
 MICROGRID_HOST ?= $(if $(HOST),pi@$(HOST),pi@microgrid-001.local)
@@ -51,15 +53,22 @@ dev: install
 # Testing
 # =============================================================================
 
-## Run pytest test suite
-test:
-	$(PYTEST) tests/ -v --tb=short
+## Run all tests (Rust + Python)
+test: test-rust test-python
+
+## Run Rust kernel tests
+test-rust:
+	cd kernel && cargo test
+
+## Run Python prototype tests
+test-python:
+	$(PYTEST) prototype/tests/ -v --tb=short
 
 ## Run tests with coverage report
 test-cov:
-	$(PYTEST) tests/ -v --tb=short --cov=src --cov-report=term-missing
+	$(PYTEST) prototype/tests/ -v --tb=short --cov=prototype/src --cov-report=term-missing
 
-## Run a single test file (usage: make test-one FILE=tests/test_devices.py)
+## Run a single test file (usage: make test-one FILE=prototype/tests/test_devices.py)
 test-one:
 	$(PYTEST) $(FILE) -v --tb=long
 
@@ -69,16 +78,24 @@ test-one:
 
 ## Run ruff linter
 lint:
-	$(RUFF) check src/ tests/
+	$(RUFF) check prototype/src/ prototype/tests/ ml/ sim/
 
 ## Auto-format code with ruff
 format:
-	$(RUFF) format src/ tests/
-	$(RUFF) check --fix src/ tests/
+	$(RUFF) format prototype/src/ prototype/tests/ ml/ sim/
+	$(RUFF) check --fix prototype/src/ prototype/tests/ ml/ sim/
 
 ## Run mypy type checker
 typecheck:
-	$(VENV)/bin/mypy src/ --ignore-missing-imports
+	$(VENV)/bin/mypy prototype/src/ --ignore-missing-imports
+
+## Check Rust kernel compiles
+kernel-check:
+	cd kernel && cargo check
+
+## Build Rust kernel (release)
+kernel-build:
+	cd kernel && cargo build --release
 
 # =============================================================================
 # Running
@@ -86,7 +103,11 @@ typecheck:
 
 ## Run agent in simulation mode (no hardware required)
 simulate:
-	$(AGENT) --config config/site.example.toml --simulate
+	cd prototype && $(PYTHON) main.py --config ../config/site.example.toml --simulate
+
+## Run simulation comparison framework (3 sites × 3 controllers)
+sim:
+	$(PYTHON) -m sim.run
 
 ## Run agent in shadow mode (read sensors, don't control)
 shadow:
@@ -162,8 +183,8 @@ docker-test:
 
 ## Clean build artifacts
 clean:
-	rm -rf __pycache__ src/__pycache__ tests/__pycache__
-	rm -rf .pytest_cache .mypy_cache .ruff_cache
+	rm -rf __pycache__ prototype/src/__pycache__ prototype/tests/__pycache__ ml/__pycache__ sim/__pycache__
+	rm -rf .pytest_cache prototype/.pytest_cache .mypy_cache .ruff_cache
 	rm -rf *.egg-info dist build
 	rm -rf htmlcov .coverage
 
@@ -185,14 +206,19 @@ help:
 	@echo "    make dev           Full dev environment setup"
 	@echo ""
 	@echo "  Testing:"
-	@echo "    make test          Run pytest suite"
-	@echo "    make test-cov      Run tests with coverage"
+	@echo "    make test          Run all tests (Rust + Python)"
+	@echo "    make test-rust     Run Rust kernel tests only"
+	@echo "    make test-python   Run Python prototype tests only"
+	@echo "    make test-cov      Run Python tests with coverage"
 	@echo "    make lint          Run ruff linter"
 	@echo "    make format        Auto-format code"
 	@echo "    make typecheck     Run mypy type checker"
+	@echo "    make kernel-check  Check Rust kernel compiles"
+	@echo "    make kernel-build  Build Rust kernel (release)"
 	@echo ""
 	@echo "  Running:"
-	@echo "    make simulate      Run in simulation mode (no hardware)"
+	@echo "    make simulate      Run prototype in simulation mode"
+	@echo "    make sim           Run simulation comparison (3 sites × 3 controllers)"
 	@echo "    make shadow        Run in shadow mode (observe only)"
 	@echo "    make run           Run in active mode (production)"
 	@echo "    make health        Run health check"
