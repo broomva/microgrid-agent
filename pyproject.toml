@@ -37,23 +37,23 @@ classifiers = [
 ]
 
 dependencies = [
-    "pymodbus>=3.5",
-    "paho-mqtt>=2.0",
+    "numpy>=1.24",
     "scipy>=1.11",
-    "toml>=0.10",
     "aiosqlite>=0.19",
     "aiohttp>=3.9",
+    "paho-mqtt>=1.6,<2.0",
 ]
 
 [project.optional-dependencies]
+# Hardware protocols (RS-485 Modbus, Victron VE.Direct)
+hardware = [
+    "pymodbus>=3.5",
+    "pyserial-asyncio>=0.6",
+]
+
 # TFLite runtime for ARM devices (Raspberry Pi)
 arm = [
     "tflite-runtime",
-]
-
-# XLSX file ingestion support
-xlsx = [
-    "openpyxl>=3.1",
 ]
 
 # Development and testing
@@ -67,7 +67,7 @@ dev = [
 
 # All optional dependencies
 all = [
-    "microgrid-agent[xlsx,dev]",
+    "microgrid-agent[hardware,dev]",
 ]
 
 [project.scripts]

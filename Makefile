@@ -1,31 +1,215 @@
-.PHONY: test simulate lint format deploy-rpi docker-build docker-run health
+# =============================================================================
+# microgrid-agent — Makefile
+# =============================================================================
+# Targets for development, testing, deployment, and operations.
+# =============================================================================
 
+.PHONY: test test-cov test-one simulate shadow run lint format typecheck \
+        deploy-rpi install-service status-rpi logs-rpi \
+        docker-build docker-run docker-test \
+        health install install-rpi dev clean distclean help
+
+# Configuration
+PYTHON       ?= python3
+VENV         ?= .venv
+PIP          := $(VENV)/bin/pip
+PYTEST       := $(VENV)/bin/pytest
+RUFF         := $(VENV)/bin/ruff
+AGENT        := $(VENV)/bin/python -m microgrid_agent
+
+# RPi deployment (set MICROGRID_HOST=user@hostname or legacy HOST=ip)
+MICROGRID_HOST ?= $(if $(HOST),pi@$(HOST),pi@microgrid-001.local)
+DEPLOY_PATH    ?= /opt/microgrid-agent
+SERVICE_NAME   ?= microgrid-agent
+
+# Docker
+IMAGE_NAME   ?= microgrid-agent
+IMAGE_TAG    ?= latest
+
+# =============================================================================
+# Development
+# =============================================================================
+
+## Install dependencies in virtual environment
+install: $(VENV)/bin/activate
+	$(PIP) install -e ".[dev,ingest]"
+
+## Install with RPi hardware dependencies
+install-rpi: $(VENV)/bin/activate
+	$(PIP) install -e ".[dev,rpi]"
+
+$(VENV)/bin/activate:
+	$(PYTHON) -m venv $(VENV)
+	$(PIP) install --upgrade pip
+
+## Set up development environment from scratch
+dev: install
+	@echo "Development environment ready."
+	@echo "Activate with: source $(VENV)/bin/activate"
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+## Run pytest test suite
 test:
-	python -m pytest tests/ -v
+	$(PYTEST) tests/ -v --tb=short
 
-simulate:
-	python main.py --config config/site.example.toml --simulate
+## Run tests with coverage report
+test-cov:
+	$(PYTEST) tests/ -v --tb=short --cov=src --cov-report=term-missing
 
+## Run a single test file (usage: make test-one FILE=tests/test_devices.py)
+test-one:
+	$(PYTEST) $(FILE) -v --tb=long
+
+# =============================================================================
+# Code Quality
+# =============================================================================
+
+## Run ruff linter
 lint:
-	ruff check src/ main.py tests/
+	$(RUFF) check src/ tests/
 
+## Auto-format code with ruff
 format:
-	ruff format src/ main.py tests/
+	$(RUFF) format src/ tests/
+	$(RUFF) check --fix src/ tests/
 
-deploy-rpi:
-	@test -n "$(HOST)" || (echo "Usage: make deploy-rpi HOST=192.168.1.100" && exit 1)
-	rsync -avz --exclude .git --exclude __pycache__ --exclude .venv \
-		. pi@$(HOST):/opt/microgrid-agent/
-	ssh pi@$(HOST) "sudo systemctl restart microgrid-agent"
+## Run mypy type checker
+typecheck:
+	$(VENV)/bin/mypy src/ --ignore-missing-imports
 
-docker-build:
-	docker build -t microgrid-agent -f deploy/Dockerfile .
+# =============================================================================
+# Running
+# =============================================================================
 
-docker-run:
-	docker run --rm -it microgrid-agent
+## Run agent in simulation mode (no hardware required)
+simulate:
+	$(AGENT) --config config/site.example.toml --simulate
 
+## Run agent in shadow mode (read sensors, don't control)
+shadow:
+	$(AGENT) --config config/site.toml --shadow
+
+## Run agent in active mode (production)
+run:
+	$(AGENT) --config config/site.toml
+
+## Run health check
 health:
 	./scripts/health-check.sh
 
-install:
-	pip install -e ".[dev,ingest]"
+# =============================================================================
+# Deployment — Raspberry Pi
+# =============================================================================
+
+## Deploy to connected RPi via SSH (set MICROGRID_HOST=user@host or HOST=ip)
+deploy-rpi:
+	@echo "Deploying to $(MICROGRID_HOST):$(DEPLOY_PATH)..."
+	rsync -avz --exclude='.venv' --exclude='.git' --exclude='__pycache__' \
+		--exclude='*.pyc' --exclude='data/' \
+		./ $(MICROGRID_HOST):$(DEPLOY_PATH)/
+	ssh $(MICROGRID_HOST) "cd $(DEPLOY_PATH) && \
+		python3 -m venv .venv && \
+		.venv/bin/pip install -e '.[rpi]'"
+	@echo "Restarting service..."
+	ssh $(MICROGRID_HOST) "sudo systemctl restart $(SERVICE_NAME)"
+	@echo "Deploy complete. Check status:"
+	@echo "  ssh $(MICROGRID_HOST) sudo systemctl status $(SERVICE_NAME)"
+
+## Install systemd service on RPi (run on the Pi itself)
+install-service:
+	sudo cp deploy/microgrid-agent.service /etc/systemd/system/
+	sudo systemctl daemon-reload
+	sudo systemctl enable $(SERVICE_NAME)
+	@echo "Service installed. Start with: sudo systemctl start $(SERVICE_NAME)"
+
+## Check remote RPi status
+status-rpi:
+	ssh $(MICROGRID_HOST) "sudo systemctl status $(SERVICE_NAME); echo '---'; uptime; echo '---'; df -h /; echo '---'; free -h"
+
+## View remote RPi logs
+logs-rpi:
+	ssh $(MICROGRID_HOST) "sudo journalctl -u $(SERVICE_NAME) -n 50 --no-pager"
+
+# =============================================================================
+# Docker (for CI and testing without RPi hardware)
+# =============================================================================
+
+## Build Docker test container
+docker-build:
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f deploy/Dockerfile .
+
+## Run agent in Docker (simulation mode)
+docker-run:
+	docker run --rm -it \
+		-v $(PWD)/config:/app/config:ro \
+		-v $(PWD)/data:/app/data \
+		-p 8080:8080 \
+		$(IMAGE_NAME):$(IMAGE_TAG) \
+		--config config/site.example.toml --simulate
+
+## Run tests in Docker
+docker-test:
+	docker run --rm \
+		$(IMAGE_NAME):$(IMAGE_TAG) \
+		pytest tests/ -v --tb=short
+
+# =============================================================================
+# Maintenance
+# =============================================================================
+
+## Clean build artifacts
+clean:
+	rm -rf __pycache__ src/__pycache__ tests/__pycache__
+	rm -rf .pytest_cache .mypy_cache .ruff_cache
+	rm -rf *.egg-info dist build
+	rm -rf htmlcov .coverage
+
+## Deep clean (removes venv too)
+distclean: clean
+	rm -rf $(VENV)
+
+# =============================================================================
+# Help
+# =============================================================================
+
+## Show this help message
+help:
+	@echo "microgrid-agent — Available targets:"
+	@echo ""
+	@echo "  Development:"
+	@echo "    make install       Install dependencies"
+	@echo "    make install-rpi   Install with RPi hardware deps"
+	@echo "    make dev           Full dev environment setup"
+	@echo ""
+	@echo "  Testing:"
+	@echo "    make test          Run pytest suite"
+	@echo "    make test-cov      Run tests with coverage"
+	@echo "    make lint          Run ruff linter"
+	@echo "    make format        Auto-format code"
+	@echo "    make typecheck     Run mypy type checker"
+	@echo ""
+	@echo "  Running:"
+	@echo "    make simulate      Run in simulation mode (no hardware)"
+	@echo "    make shadow        Run in shadow mode (observe only)"
+	@echo "    make run           Run in active mode (production)"
+	@echo "    make health        Run health check"
+	@echo ""
+	@echo "  Deployment:"
+	@echo "    make deploy-rpi    Deploy to RPi (set MICROGRID_HOST or HOST)"
+	@echo "    make install-service  Install systemd service on RPi"
+	@echo "    make status-rpi    Check RPi status"
+	@echo "    make logs-rpi      View RPi logs"
+	@echo ""
+	@echo "  Docker:"
+	@echo "    make docker-build  Build test container"
+	@echo "    make docker-run    Run in Docker (simulation)"
+	@echo "    make docker-test   Run tests in Docker"
+	@echo ""
+	@echo "  Maintenance:"
+	@echo "    make clean         Remove build artifacts"
+	@echo "    make distclean     Remove artifacts + venv"
+
+.DEFAULT_GOAL := help
