@@ -191,7 +191,7 @@ slave_id = 1
 > bolted on. It is an autonomous AI agent (a Life/Arcan instance) with an LLM reasoning
 > core, tools for sensing/dispatch/KG, and deterministic safety gates. The LSTM and LP
 > solver are tools the agent uses, not the agent itself. See
-> [docs/agentic-architecture.md](docs/agentic-architecture.md) for the full rationale.
+> [docs/architecture.md](docs/architecture.md) for the full rationale.
 
 ```
 Multi-Rate Control Loop
@@ -248,10 +248,7 @@ Module Map
     +-- metrics.py           Performance metrics & comparison
 ```
 
-For the full technical architecture reference, see:
-- [docs/agentic-architecture.md](docs/agentic-architecture.md) -- agentic-native design (authoritative)
-- [docs/system-architecture.md](docs/system-architecture.md) -- three-plane system map
-- [docs/architecture.md](docs/architecture.md) -- protocol details & hardware abstraction
+For the full technical architecture reference, see [docs/architecture.md](docs/architecture.md) -- consolidated design document covering agentic-native philosophy, three-plane system map, protocol details, LP formulation, fleet sync, and security.
 
 ## DIY Guide
 

@@ -7,7 +7,7 @@ Open-source edge AI agent for autonomous renewable energy microgrid management. 
 - **Languages**: Rust (kernel daemon, production), Python 3.11+ (prototype, ML worker, simulation)
 - **Runtime**: Raspberry Pi OS Lite (64-bit), ARM64
 - **Design principle**: Agentic-native — the LLM IS the reasoning core, tools for sensing/dispatch/KG, deterministic safety gates. Edge-first, offline-capable. No cloud dependency in the critical control path.
-- **Agentic architecture**: See [docs/agentic-architecture.md](docs/agentic-architecture.md) for the authoritative design doc (BitNet 2B for edge reasoning, tiered reasoning hierarchy, EGRI self-improvement loop).
+- **Agentic architecture**: See [docs/architecture.md](docs/architecture.md) for the authoritative design doc (BitNet 2B for edge reasoning, tiered reasoning hierarchy, EGRI self-improvement loop).
 - **Research context**: MAIA capstone at Universidad de los Andes, TICSw research group (A1, Minciencias)
 
 ## Architecture
@@ -60,7 +60,7 @@ data/
 deploy/                  Systemd units, Dockerfile, install scripts
 scripts/                 Health checks, calibration, utilities
 schema/                  Knowledge graph SQL schema
-docs/                    Architecture docs (agentic-architecture, system-architecture, etc.)
+docs/                    Architecture docs (consolidated architecture.md)
 ```
 
 ### Control Loop Hierarchy
@@ -176,7 +176,7 @@ Mapping the 7 bstack primitives to this project:
 
 ## Control Kernel Integration
 
-The Autonomic module (`kernel/src/autonomic.rs` in Rust, `prototype/src/autonomic.py` in Python) IS the control kernel for this project. It implements a homeostasis controller inspired by biological autonomic nervous systems. In the agentic architecture, Autonomic is Tier 1 (deterministic reflex) -- it validates every tool call from the LLM reasoning core (Tier 2) and has absolute veto power. See [docs/agentic-architecture.md](docs/agentic-architecture.md) for the tiered reasoning hierarchy (Tier 1: Reflex, Tier 2: BitNet 2B, Tier 3: Qwen 3B, Tier 4: Claude API).
+The Autonomic module (`kernel/src/autonomic.rs` in Rust, `prototype/src/autonomic.py` in Python) IS the control kernel for this project. It implements a homeostasis controller inspired by biological autonomic nervous systems. In the agentic architecture, Autonomic is Tier 1 (deterministic reflex) -- it validates every tool call from the LLM reasoning core (Tier 2) and has absolute veto power. See [docs/architecture.md](docs/architecture.md) for the tiered reasoning hierarchy (Tier 1: Reflex, Tier 2: BitNet 2B, Tier 3: Qwen 3B, Tier 4: Claude API).
 
 ### Setpoints
 
