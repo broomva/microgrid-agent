@@ -2,7 +2,7 @@
 """Run the microgrid simulation comparison.
 
 Executes all controllers against all pilot sites and produces
-a comparison report. This is the capstone validation deliverable.
+a comparison report. This is the primary validation deliverable.
 
 Usage:
     python -m sim.run                    # all sites, all controllers

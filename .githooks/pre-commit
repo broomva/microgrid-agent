@@ -1,0 +1,29 @@
+#!/bin/bash
+# Pre-commit hook — runs smoke tests before every commit
+# Install: git config core.hooksPath .githooks
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+echo "=== Pre-commit: smoke test ==="
+
+# G2: All tests must pass
+echo "Running tests..."
+make test 2>&1 | tail -5
+
+# G3: Kernel must compile
+echo "Checking kernel compilation..."
+cd kernel && cargo check 2>&1 | tail -1 && cd ..
+
+# G4: No secrets in staged files
+echo "Checking for secrets..."
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+for pattern in "API_KEY=" "SECRET=" "PASSWORD=" "PRIVATE_KEY="; do
+    MATCHES=$(echo "$STAGED" | xargs grep -l "$pattern" 2>/dev/null | grep -v '\.md$' | grep -v '\.toml\.example$' | grep -v '\.githooks/' | grep -v 'scripts/' | grep -v '\.yaml$' || true)
+    if [ -n "$MATCHES" ]; then
+        echo "ERROR: Possible secret ($pattern) found in: $MATCHES"
+        exit 1
+    fi
+done
+
+echo "=== Pre-commit: all checks passed ==="

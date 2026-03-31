@@ -23,7 +23,8 @@ import aiosqlite
 
 SCHEMA_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "schema",
+    ".control",
+    "schemas",
     "knowledge-graph.sql",
 )
 

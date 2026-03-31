@@ -1139,12 +1139,12 @@ loop {
 ### Research Trajectory
 
 ```
-CAPSTONE (2026-2028):
+PHASE 1 (2026-2028):
   BitNet 2B on RPi -> prove agentic dispatch > rule-based
   MAPE comparison across 3 climate zones
   EGRI loop validation: does the agent improve over 30 days?
 
-POST-CAPSTONE (2028+):
+PHASE 2 (2028+):
   BitNet 7B+ -> deeper reasoning, fewer escalations to Tier 3/4
   Custom fine-tune on ZNI operational data -> domain-specific agent
   Fleet of 100+ agents with federated learning

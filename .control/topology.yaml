@@ -1,0 +1,87 @@
+# microgrid-agent — Repository Topology
+# Maps the structure for control-metalayer navigation.
+
+version: "1.1"
+
+modules:
+  kernel:
+    path: "kernel/src/"
+    language: rust
+    role: "Production daemon — async runtime, device drivers, dispatch, safety gates"
+    entry: "kernel/src/main.rs"
+    tests: "kernel/src/ (inline #[cfg(test)])"
+    critical: true
+
+  reference:
+    path: "reference/src/"
+    language: python
+    role: "Frozen reference implementation — read-only, used for testing and validation"
+    entry: "reference/main.py"
+    tests: "reference/tests/"
+    critical: false
+
+  forecast:
+    path: "forecast/"
+    language: python
+    role: "ML forecast worker — LSTM inference, spawned by kernel via IPC"
+    entry: "forecast/worker.py"
+    tests: "reference/tests/test_forecast.py"
+    critical: false
+
+  simulation:
+    path: "simulation/"
+    language: python
+    role: "Simulation & benchmarking — compares controller strategies across sites"
+    entry: "simulation/run.py"
+    tests: "simulation/ (self-validating — metrics comparison)"
+    critical: false
+
+  config:
+    path: "config/"
+    role: "Site configuration (TOML) — identity, topology, setpoints"
+    critical: true
+
+  governance:
+    path: ".control/"
+    role: "Control metalayer — policy, commands, topology, EGRI, schemas, evals"
+    files:
+      - policy.yaml
+      - commands.yaml
+      - topology.yaml
+      - egri-journal.jsonl
+      - schemas/
+      - evals/
+    critical: true
+
+  hooks:
+    path: "scripts/hooks/"
+    role: "Claude Code session hooks — start, stop, control gate"
+    files:
+      - session-start.sh
+      - session-stop.sh
+      - control-gate.sh
+    critical: true
+
+  deploy:
+    path: "deploy/"
+    role: "Systemd units, Dockerfile, install scripts"
+    critical: false
+
+  docs:
+    path: "docs/"
+    role: "Architecture, genome, conversations"
+    critical: false
+
+dependencies:
+  kernel:
+    - config
+    - forecast  # IPC bridge to Python forecast worker
+
+  reference:
+    - config
+    - forecast
+
+  simulation: []  # Independent — has its own controller implementations
+
+  hooks:
+    - governance

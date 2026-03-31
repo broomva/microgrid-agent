@@ -4,11 +4,11 @@
 
 Open-source edge AI agent for autonomous renewable energy microgrid management. Targets Raspberry Pi 4/5 deployment in Colombia's Zonas No Interconectadas (ZNI) -- disconnected communities with solar+battery+diesel hybrid microgrids.
 
-- **Languages**: Rust (kernel daemon, production), Python 3.11+ (prototype, ML worker, simulation)
+- **Languages**: Rust (kernel daemon, production), Python 3.11+ (reference implementation, forecast worker, simulation)
 - **Runtime**: Raspberry Pi OS Lite (64-bit), ARM64
 - **Design principle**: Agentic-native — the LLM IS the reasoning core, tools for sensing/dispatch/KG, deterministic safety gates. Edge-first, offline-capable. No cloud dependency in the critical control path.
 - **Agentic architecture**: See [docs/architecture.md](docs/architecture.md) for the authoritative design doc (BitNet 2B for edge reasoning, tiered reasoning hierarchy, EGRI self-improvement loop).
-- **Research context**: MAIA capstone at Universidad de los Andes, TICSw research group (A1, Minciencias)
+- **Research context**: Universidad de los Andes, TICSw research group (A1, Minciencias)
 
 ## Architecture
 
@@ -28,11 +28,11 @@ kernel/src/              Rust daemon (production target, ~15MB binary)
 +-- config.rs            TOML config loader (serde)
 +-- tools/               Protocol drivers (modbus.rs, vedirect.rs)
 
-ml/                      Python ML worker (spawned on demand by kernel)
+forecast/                Forecast ML worker (spawned on demand by kernel)
 +-- forecast.py          TFLite LSTM inference (solar & demand)
 +-- worker.py            IPC worker process (stdin/stdout or Unix socket)
 
-prototype/src/           Python prototype (reference implementation, hackable)
+reference/src/           Frozen Python reference implementation (read-only)
 +-- agent.py             Main async control loop & orchestrator
 +-- devices.py           Hardware abstraction (Modbus RTU, VE.Direct, simulated)
 +-- dispatch.py          LP optimizer via scipy.optimize.linprog
@@ -41,9 +41,9 @@ prototype/src/           Python prototype (reference implementation, hackable)
 +-- autonomic.py         Safety constraints & homeostasis controller
 +-- dashboard.py         Local web dashboard (FastAPI, lightweight)
 
-prototype/tests/         pytest test suite for prototype
+reference/tests/         pytest test suite for reference implementation
 
-sim/                     Simulation framework
+simulation/              Simulation & benchmarking framework
 +-- run.py               Simulation runner
 +-- scenario.py          Scenario definitions (climate zones, equipment configs)
 +-- controllers.py       Control strategies for benchmarking
@@ -53,14 +53,21 @@ config/
 +-- site.example.toml    Site identity, grid topology, autonomic setpoints
 +-- devices.toml         Device registry (per-deployment, not committed)
 
-data/
+data/                    Runtime data (gitignored)
 +-- models/              TFLite model files
 +-- sync-queue/          Offline MQTT queue (SQLite WAL)
 
+.control/                Control metalayer
++-- policy.yaml          Machine-readable setpoints, gates, monitors
++-- commands.yaml        Canonical command catalog
++-- topology.yaml        Repository module map
++-- egri-journal.jsonl   EGRI evaluation log
++-- schemas/             Typed JSON schemas + knowledge graph SQL
++-- evals/               Evaluation metric definitions
+
 deploy/                  Systemd units, Dockerfile, install scripts
-scripts/                 Health checks, calibration, utilities
-schema/                  Knowledge graph SQL schema
-docs/                    Architecture docs (consolidated architecture.md)
+scripts/                 Hooks, health checks, utilities
+docs/                    Architecture, genome, conversations
 ```
 
 ### Control Loop Hierarchy
@@ -142,7 +149,7 @@ TelemetryLogger.record()   -- append to SQLite journal
 - `tracing` -- structured logging
 - `sd-notify` -- systemd watchdog integration
 
-**Python prototype/ML** (must run on RPi):
+**Python reference/forecast** (must run on RPi):
 - `numpy` -- numerical operations
 - `scipy` -- LP solver (`scipy.optimize.linprog`)
 - `tflite-runtime` -- ML inference (not full TensorFlow)
@@ -167,7 +174,7 @@ Mapping the 7 bstack primitives to this project:
 | # | Primitive | Implementation | Status |
 |---|-----------|----------------|--------|
 | P1 | Conversation Bridge | `docs/conversations/` -- session logs indexed here | Active |
-| P2 | Control Gate | `autonomic.py` -- safety constraints as the control gate. SOC limits, diesel runtime caps, load shedding priority are hard gates that the ML optimizer cannot override. | Active |
+| P2 | Control Gate | `autonomic.rs` / `autonomic.py` -- safety constraints as the control gate. SOC limits, diesel runtime caps, load shedding priority are hard gates that the ML optimizer cannot override. | Active |
 | P3 | Spaces Integration | N/A -- standalone edge project, no SpacetimeDB dependency | N/A |
 | P4 | Asset Delivery | N/A -- no web assets to deliver | N/A |
 | P5 | Linear Tickets | GitHub Issues for task tracking | Active |
@@ -176,7 +183,7 @@ Mapping the 7 bstack primitives to this project:
 
 ## Control Kernel Integration
 
-The Autonomic module (`kernel/src/autonomic.rs` in Rust, `prototype/src/autonomic.py` in Python) IS the control kernel for this project. It implements a homeostasis controller inspired by biological autonomic nervous systems. In the agentic architecture, Autonomic is Tier 1 (deterministic reflex) -- it validates every tool call from the LLM reasoning core (Tier 2) and has absolute veto power. See [docs/architecture.md](docs/architecture.md) for the tiered reasoning hierarchy (Tier 1: Reflex, Tier 2: BitNet 2B, Tier 3: Qwen 3B, Tier 4: Claude API).
+The Autonomic module (`kernel/src/autonomic.rs` in Rust, `reference/src/autonomic.py` in Python) IS the control kernel for this project. It implements a homeostasis controller inspired by biological autonomic nervous systems. In the agentic architecture, Autonomic is Tier 1 (deterministic reflex) -- it validates every tool call from the LLM reasoning core (Tier 2) and has absolute veto power. See [docs/architecture.md](docs/architecture.md) for the tiered reasoning hierarchy (Tier 1: Reflex, Tier 2: BitNet 2B, Tier 3: Qwen 3B, Tier 4: Claude API).
 
 ### Setpoints
 
@@ -219,14 +226,14 @@ Predicted (forecast)  vs  Actual (telemetry)
 ## Testing
 
 ```bash
-# Run all Python prototype tests
+# Run all tests (Rust + Python)
 make test
 
 # Run with verbose output
-pytest prototype/tests/ -v
+pytest reference/tests/ -v
 
 # Run specific test module
-pytest prototype/tests/test_devices.py
+pytest reference/tests/test_devices.py
 
 # Run Rust kernel tests
 cd kernel && cargo test
@@ -235,7 +242,7 @@ cd kernel && cargo test
 make simulate
 
 # Run simulation framework benchmarks
-python sim/run.py
+python -m simulation.run
 ```
 
 ### Test Strategy
@@ -294,9 +301,11 @@ Direction: test_count↑, kernel_warnings↓, todo_count↓
 ```bash
 make test            # All tests (39 Rust + 116 Python)
 make test-rust       # Rust kernel tests only
-make test-python     # Python prototype tests only
-make sim             # Simulation comparison (3 sites × 3 controllers)
-make simulate        # Run prototype in simulation mode
+make test-python     # Python reference tests only
+make sim             # Simulation comparison (3 sites x 3 controllers)
+make simulate        # Run reference agent in simulation mode
+make control-audit   # Verify metalayer compliance
+make bstack-check    # Full harness validation
 make lint            # Ruff linter
 make kernel-check    # Verify Rust kernel compiles
 make kernel-build    # Build Rust kernel (release)

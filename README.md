@@ -11,15 +11,15 @@
 ## Three-Layer Architecture
 
 ```
-kernel/    — Rust daemon (always-on, no GC, ~15MB binary)
-             Sensors, dispatch, safety, journal, dashboard, fleet sync
-             Agentic reasoning core via BitNet 2B LLM on-device
-ml/        — Python ML worker (spawned on demand by kernel)
-             TFLite LSTM forecasting, model retraining
-prototype/ — Python prototype (reference implementation, hackable)
-             Full agent in Python for rapid experimentation
-sim/       — Simulation framework (Python)
-             Scenario definitions, controller benchmarking, metrics
+kernel/      — Rust daemon (always-on, no GC, ~15MB binary)
+               Sensors, dispatch, safety, journal, dashboard, fleet sync
+               Agentic reasoning core via BitNet 2B LLM on-device
+forecast/    — Python forecast worker (spawned on demand by kernel)
+               TFLite LSTM forecasting, model retraining
+reference/   — Frozen Python reference implementation
+               Full agent in Python for validation and testing
+simulation/  — Simulation & benchmarking framework (Python)
+               Scenario definitions, controller comparison, metrics
 ```
 
 ---
@@ -103,7 +103,7 @@ pip install -e ".[dev]"
 make simulate
 
 # Or run the simulation framework directly
-python sim/run.py
+python -m simulation.run
 ```
 
 Simulation mode creates virtual solar panels, batteries, a diesel generator, and community loads with realistic diurnal patterns. You can explore the full control loop without any physical hardware.
@@ -228,11 +228,11 @@ Module Map
     +-- config.rs            TOML config loader
     +-- tools/               Modbus RTU & VE.Direct protocol drivers
 
-    ml/                      Python ML worker (spawned on demand)
+    forecast/                Forecast ML worker (spawned on demand)
     +-- forecast.py          TFLite LSTM inference
     +-- worker.py            IPC worker process
 
-    prototype/src/           Python prototype (reference implementation)
+    reference/src/           Frozen Python reference implementation
     +-- agent.py             Main control loop & orchestrator
     +-- devices.py           Hardware abstraction (simulated + Modbus)
     +-- dispatch.py          LP optimizer (scipy.optimize.linprog)
@@ -241,7 +241,7 @@ Module Map
     +-- dashboard.py         Local web dashboard (FastAPI)
     +-- sync.py              MQTT fleet sync
 
-    sim/                     Simulation framework
+    simulation/              Simulation & benchmarking framework
     +-- run.py               Simulation runner
     +-- scenario.py          Scenario definitions
     +-- controllers.py       Control strategies for benchmarking
@@ -284,7 +284,7 @@ make simulate
 cd kernel && cargo build --release
 
 # Run sim framework for benchmarking
-python sim/run.py
+python -m simulation.run
 ```
 
 ## Contributing
@@ -310,7 +310,7 @@ Contributions are welcome. This project exists to make autonomous energy managem
 ### Code Standards
 
 - **Rust kernel**: stable Rust, tokio async runtime, tracing for structured logging
-- **Python prototype/ML**: Python 3.11+ with type hints on all functions, asyncio for I/O
+- **Python (reference/forecast)**: Python 3.11+ with type hints on all functions, asyncio for I/O
 - Ruff for Python linting and formatting
 - pytest for Python testing
 - Structured JSON logging (no print statements)
@@ -323,7 +323,7 @@ This is open-source software. Use it, modify it, deploy it. If it saves a commun
 
 ## Acknowledgments
 
-- Research conducted as part of the MAIA (Maestria en Inteligencia Artificial) capstone at **Universidad de los Andes**
+- Research conducted at **Universidad de los Andes**
 - Supported by the **TICSw research group** (A1 classification, Minciencias)
 - Inspired by the **Husk Power Systems** fleet intelligence model for distributed mini-grid management
 - Built on Colombia's ZNI electrification data from **IPSE** (Instituto de Planificacion y Promocion de Soluciones Energeticas)

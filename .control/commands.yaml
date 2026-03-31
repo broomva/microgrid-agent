@@ -1,0 +1,67 @@
+# microgrid-agent — Command Catalog
+# Canonical commands the agent and harness may invoke.
+# Keep names stable — hooks and CI reference these by name.
+
+version: "1.0"
+
+commands:
+  # ── Quality Gates ──────────────────────────────────
+  smoke:
+    run: "make test && make kernel-check"
+    description: "Fast smoke test — all tests pass + kernel compiles"
+    when: "pre-commit, session-start"
+
+  check:
+    run: "make test && make lint && make kernel-check"
+    description: "Full quality check — tests + lint + kernel"
+    when: "pre-merge, CI"
+
+  control-audit:
+    run: "make control-audit"
+    description: "Verify metalayer compliance — governance files, hooks, EGRI"
+    when: "bstack-check, weekly"
+
+  bstack-check:
+    run: "make bstack-check"
+    description: "Full bstack harness validation"
+    when: "bootstrap, status"
+
+  # ── Simulation ─────────────────────────────────────
+  sim:
+    run: "python -m simulation.run"
+    description: "Full simulation comparison (3 sites x 3 controllers)"
+    when: "on-demand, pre-release"
+
+  sim-quick:
+    run: "python -m simulation.run --site coqui"
+    description: "Quick simulation (Coqui site only)"
+    when: "session-start, quick-check"
+
+  # ── Build ──────────────────────────────────────────
+  kernel-build:
+    run: "cd kernel && cargo build --release"
+    description: "Build Rust kernel for deployment"
+    when: "pre-deploy"
+
+  # ── Operations ─────────────────────────────────────
+  deploy:
+    run: "make deploy-rpi"
+    description: "Deploy to RPi via SSH"
+    when: "manual — requires human approval"
+    gate: "human-approval"
+
+  health:
+    run: "make health"
+    description: "Run health check script"
+    when: "on-demand, post-deploy"
+
+  # ── Maintenance ────────────────────────────────────
+  clean:
+    run: "make clean"
+    description: "Remove build artifacts"
+    when: "on-demand"
+
+  format:
+    run: "make format"
+    description: "Auto-format all Python code"
+    when: "pre-commit"

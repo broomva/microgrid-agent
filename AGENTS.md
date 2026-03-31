@@ -54,7 +54,7 @@ I5: The agent degrades gracefully.
 - Log insights and reasoning to `docs/conversations/` or `.control/egri-journal.jsonl`
 
 ### You MAY NOT:
-- Modify safety gates in `kernel/src/autonomic.rs` or `prototype/src/autonomic.py` without explicit human approval
+- Modify safety gates in `kernel/src/autonomic.rs` or `reference/src/autonomic.py` without explicit human approval
 - Delete or modify `.control/policy.yaml` gates section
 - Force push to any branch
 - Commit secrets, API keys, or credentials

@@ -13,7 +13,7 @@ echo "└───────────────────────�
 echo ""
 echo "▸ Test health:"
 RUST_RESULT=$(cd kernel && cargo test 2>&1 | tail -1)
-PYTHON_RESULT=$(cd prototype && python -m pytest tests/ -q --tb=no 2>&1 | tail -1)
+PYTHON_RESULT=$(cd reference && python -m pytest tests/ -q --tb=no 2>&1 | tail -1)
 echo "  Rust:   $RUST_RESULT"
 echo "  Python: $PYTHON_RESULT"
 
@@ -48,7 +48,7 @@ fi
 # 5. Check simulation baseline
 echo ""
 echo "▸ Quick simulation (Coquí only):"
-python -m sim.run --site coqui 2>&1 | grep -E "(rule-based|forecast)" | head -3
+python -m simulation.run --site coqui 2>&1 | grep -E "(rule-based|forecast)" | head -3
 
 echo ""
 echo "──────────────────────────────────────────────────────"

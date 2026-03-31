@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EGRIEvaluation",
+  "description": "EGRI evaluation entry — session or runtime metrics with score and direction",
+  "type": "object",
+  "required": ["timestamp", "branch", "metrics"],
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "branch": { "type": "string" },
+    "session_id": { "type": "string" },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "test_count": { "type": "integer", "minimum": 0 },
+        "rust_tests": { "type": "integer", "minimum": 0 },
+        "python_tests": { "type": "integer", "minimum": 0 },
+        "kernel_warnings": { "type": "integer", "minimum": 0 },
+        "todo_count": { "type": "integer", "minimum": 0 },
+        "files_changed": { "type": "integer", "minimum": 0 },
+        "sim_renewable_fraction": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sim_diesel_liters": { "type": "number", "minimum": 0 }
+      }
+    },
+    "direction": {
+      "type": "object",
+      "description": "Whether each metric moved in the desired direction",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["improved", "regressed", "stable", "unknown"]
+      }
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["improved", "regressed", "stable", "mixed"],
+      "description": "Overall session verdict"
+    }
+  }
+}
