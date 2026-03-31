@@ -1,0 +1,122 @@
+# microgrid-agent — Control Policy
+# Machine-readable governance for autonomous agent operation.
+# This file is read by hooks, scripts, and the agent itself.
+
+version: "1.0"
+project: microgrid-agent
+
+# ─────────────────────────────────────────────────────
+# SETPOINTS — target operating state
+# ─────────────────────────────────────────────────────
+setpoints:
+  # Code quality
+  test_pass_rate: 1.0          # 100% tests must pass
+  rust_tests_min: 39           # Minimum Rust test count
+  python_tests_min: 116        # Minimum Python test count
+  lint_clean: true             # Zero lint errors
+
+  # Simulation
+  sim_sites: ["inirida", "coqui", "providencia"]
+  sim_baseline_controller: "rule-based"
+  sim_must_improve_on:         # Controllers must beat baseline on these metrics
+    - renewable_fraction
+    - priority_load_uptime
+
+  # Architecture
+  kernel_compiles: true        # cargo check must pass
+  edge_memory_budget_mb: 512   # Total RAM budget on RPi
+  safety_gates_count: 4        # G1-G4 must all exist
+
+  # Documentation
+  architecture_doc: "docs/architecture.md"
+  readme_exists: true
+  claude_md_exists: true
+
+# ─────────────────────────────────────────────────────
+# GATES — hard constraints, never bypassed
+# ─────────────────────────────────────────────────────
+gates:
+  G1_no_force_push:
+    trigger: "git push --force"
+    action: block
+    message: "Force push to main is prohibited"
+
+  G2_tests_pass:
+    trigger: "pre-commit"
+    action: block_if_fail
+    command: "make test"
+    message: "All tests must pass before commit"
+
+  G3_kernel_compiles:
+    trigger: "pre-commit"
+    action: block_if_fail
+    command: "cd kernel && cargo check 2>&1"
+    message: "Rust kernel must compile"
+
+  G4_no_secrets:
+    trigger: "pre-commit"
+    action: block
+    patterns:
+      - "API_KEY"
+      - "SECRET"
+      - "PASSWORD"
+      - "PRIVATE_KEY"
+    exclude:
+      - "*.md"
+      - "*.toml.example"
+    message: "No secrets in committed code"
+
+  G5_safety_invariant:
+    trigger: "edit autonomic"
+    action: warn
+    message: "Safety gates (G1-G4 in autonomic.rs) must NEVER be removed or weakened"
+
+# ─────────────────────────────────────────────────────
+# MONITORS — self-assessment loops
+# ─────────────────────────────────────────────────────
+monitors:
+  test_health:
+    schedule: "on_session_start"
+    command: "make test 2>&1 | tail -5"
+    on_failure: "alert: tests failing — fix before other work"
+
+  sim_regression:
+    schedule: "daily"
+    command: "python -m sim.run --site coqui 2>&1 | grep 'renewable'"
+    baseline: "renewable_fraction > 18%"
+    on_regression: "alert: simulation regression detected"
+
+  kernel_build:
+    schedule: "on_session_start"
+    command: "cd kernel && cargo check 2>&1 | tail -3"
+    on_failure: "alert: kernel doesn't compile"
+
+  doc_freshness:
+    schedule: "weekly"
+    check: "docs/architecture.md modified within 30 days"
+    on_stale: "warn: architecture doc may need review"
+
+# ─────────────────────────────────────────────────────
+# EGRI — Evaluator-Governed Recursive Improvement
+# ─────────────────────────────────────────────────────
+egri:
+  evaluation_schedule: "end_of_session"
+  metrics:
+    - name: "test_count"
+      source: "make test 2>&1 | grep 'passed'"
+      direction: "increase"  # More tests = better
+
+    - name: "sim_renewable_coqui"
+      source: "python -m sim.run --site coqui 2>&1 | grep forecast+kg | awk '{print $4}'"
+      direction: "increase"  # Higher renewable fraction = better
+
+    - name: "kernel_warnings"
+      source: "cd kernel && cargo check 2>&1 | grep warning | wc -l"
+      direction: "decrease"  # Fewer warnings = better
+
+    - name: "todo_count"
+      source: "grep -r 'TODO' kernel/src/ --include='*.rs' | wc -l"
+      direction: "decrease"  # Fewer TODOs = better
+
+  # Log EGRI evaluations to this file
+  journal: ".control/egri-journal.jsonl"
