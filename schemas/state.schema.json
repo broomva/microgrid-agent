@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MicrogridState",
+  "description": "Plant state vector — sensor readings at a point in time",
+  "type": "object",
+  "required": ["timestamp", "solar_kw", "battery_soc", "battery_kw", "diesel_kw", "demand_kw"],
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "solar_kw": { "type": "number", "minimum": 0, "description": "Solar generation (kW)" },
+    "battery_soc": { "type": "number", "minimum": 0, "maximum": 1, "description": "Battery state of charge (0.0-1.0)" },
+    "battery_kw": { "type": "number", "description": "Battery power flow: +charge, -discharge (kW)" },
+    "diesel_kw": { "type": "number", "minimum": 0, "description": "Diesel generation (kW)" },
+    "demand_kw": { "type": "number", "minimum": 0, "description": "Total load demand (kW)" },
+    "grid_freq_hz": { "type": "number", "description": "Grid frequency (Hz)" },
+    "device_health": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["online", "offline", "degraded", "fault"]
+      }
+    }
+  }
+}

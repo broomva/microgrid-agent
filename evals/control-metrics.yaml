@@ -1,0 +1,35 @@
+# Control Metrics — EGRI evaluation definitions
+# Used by session-stop hook and control-audit to assess improvement
+
+version: "1.0"
+
+metrics:
+  - name: test_count
+    source: "make test 2>&1 | grep 'passed'"
+    direction: increase
+    baseline: 155  # 39 Rust + 116 Python as of 2026-03-31
+    critical: true
+
+  - name: kernel_warnings
+    source: "cd kernel && cargo check 2>&1 | grep -c warning"
+    direction: decrease
+    baseline: 25  # as of 2026-03-31
+    critical: false
+
+  - name: todo_count
+    source: "grep -r TODO kernel/src/ --include='*.rs' | wc -l"
+    direction: decrease
+    baseline: 17  # as of 2026-03-31
+    critical: false
+
+  - name: sim_renewable_coqui
+    source: "python -m sim.run --site coqui 2>&1 | grep forecast | awk '{print $4}'"
+    direction: increase
+    baseline: "18.6%"
+    critical: false
+
+  - name: sim_diesel_coqui
+    source: "python -m sim.run --site coqui 2>&1 | grep forecast | awk '{print $3}'"
+    direction: decrease
+    baseline: "29463L"
+    critical: false

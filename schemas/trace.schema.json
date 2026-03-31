@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ControlTrace",
+  "description": "Append-only ledger entry — records one control cycle with state, action, outcome",
+  "type": "object",
+  "required": ["timestamp", "cycle_id", "state", "action", "outcome"],
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "cycle_id": { "type": "integer", "minimum": 0 },
+    "tier": {
+      "type": "string",
+      "enum": ["T0_safety", "T1_poll", "T2_dispatch", "T3_forecast", "T4_supervisory", "T5_strategic", "T6_meta"],
+      "description": "Which controller tier produced this trace"
+    },
+    "state": { "$ref": "state.schema.json" },
+    "action": { "$ref": "action.schema.json" },
+    "outcome": {
+      "type": "object",
+      "properties": {
+        "applied": { "type": "boolean", "description": "Whether the action was applied (false if vetoed by shield)" },
+        "shield_veto": { "type": "string", "description": "Which shield vetoed, if any" },
+        "actual_renewable_fraction": { "type": "number" },
+        "diesel_liters_used": { "type": "number" },
+        "loads_shed": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "reasoning": { "type": "string" }
+  }
+}

@@ -1,0 +1,91 @@
+# microgrid-agent — Repository Topology
+# Maps the structure for control-metalayer navigation.
+
+version: "1.0"
+
+modules:
+  kernel:
+    path: "kernel/src/"
+    language: rust
+    role: "Production daemon — async runtime, device drivers, dispatch, safety gates"
+    entry: "kernel/src/main.rs"
+    tests: "kernel/src/ (inline #[cfg(test)])"
+    critical: true
+
+  prototype:
+    path: "prototype/src/"
+    language: python
+    role: "Reference implementation — hackable, used for prototyping and simulation"
+    entry: "prototype/main.py"
+    tests: "prototype/tests/"
+    critical: false
+
+  ml:
+    path: "ml/"
+    language: python
+    role: "ML worker — LSTM forecast inference, spawned by kernel on demand"
+    entry: "ml/worker.py"
+    tests: "prototype/tests/test_agent.py (integration)"
+    critical: false
+
+  sim:
+    path: "sim/"
+    language: python
+    role: "Simulation framework — benchmarking controllers across sites"
+    entry: "sim/run.py"
+    tests: "sim/ (self-validating — metrics comparison)"
+    critical: false
+
+  config:
+    path: "config/"
+    role: "Site configuration (TOML) — identity, topology, setpoints"
+    critical: true
+
+  governance:
+    path: ".control/"
+    role: "Control metalayer — policy, commands, topology, EGRI journal"
+    files:
+      - policy.yaml
+      - commands.yaml
+      - topology.yaml
+      - egri-journal.jsonl
+    critical: true
+
+  schemas:
+    path: "schemas/"
+    role: "Typed interfaces — state, action, trace, evaluator JSON schemas"
+    critical: false
+
+  hooks:
+    path: "scripts/hooks/"
+    role: "Claude Code session hooks — start, stop, control gate"
+    files:
+      - session-start.sh
+      - session-stop.sh
+      - control-gate.sh
+    critical: true
+
+  deploy:
+    path: "deploy/"
+    role: "Systemd units, Dockerfile, install scripts"
+    critical: false
+
+  docs:
+    path: "docs/"
+    role: "Architecture docs, conversations, genome"
+    critical: false
+
+dependencies:
+  kernel:
+    - config
+    - ml  # IPC bridge to Python ML worker
+
+  prototype:
+    - config
+    - ml
+
+  sim:
+    - prototype
+
+  hooks:
+    - governance

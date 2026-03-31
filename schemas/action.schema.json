@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DispatchAction",
+  "description": "Control directive — typed LLM output converted to plant actuation",
+  "type": "object",
+  "required": ["timestamp", "mode"],
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "mode": {
+      "type": "string",
+      "enum": ["normal", "conservation", "emergency", "maintenance"],
+      "description": "Operating mode directive from supervisory controller"
+    },
+    "solar_curtail_pct": { "type": "number", "minimum": 0, "maximum": 1 },
+    "battery_setpoint_kw": { "type": "number" },
+    "diesel_on": { "type": "boolean" },
+    "diesel_setpoint_kw": { "type": "number", "minimum": 0 },
+    "shed_loads": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Load IDs to shed, ordered by priority (non-priority first)"
+    },
+    "renewable_target": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reasoning": { "type": "string", "description": "LLM reasoning trace for this decision" }
+  }
+}

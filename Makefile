@@ -9,7 +9,8 @@
         deploy-rpi install-service status-rpi logs-rpi \
         docker-build docker-run docker-test \
         kernel-build kernel-check \
-        health install install-rpi dev clean distclean help
+        health install install-rpi dev clean distclean help \
+        smoke check control-audit bstack-check
 
 # Configuration
 PYTHON       ?= python3
@@ -178,6 +179,24 @@ docker-test:
 		pytest tests/ -v --tb=short
 
 # =============================================================================
+# Control Metalayer
+# =============================================================================
+
+## Quick smoke test (tests + kernel compiles)
+smoke: test kernel-check
+
+## Full quality check (tests + lint + kernel)
+check: test lint kernel-check
+
+## Control audit — verify metalayer compliance
+control-audit:
+	bash scripts/control/control-audit.sh
+
+## bstack-check — full harness validation
+bstack-check:
+	bash scripts/control/bstack-check.sh
+
+# =============================================================================
 # Maintenance
 # =============================================================================
 
@@ -233,6 +252,12 @@ help:
 	@echo "    make docker-build  Build test container"
 	@echo "    make docker-run    Run in Docker (simulation)"
 	@echo "    make docker-test   Run tests in Docker"
+	@echo ""
+	@echo "  Control:"
+	@echo "    make smoke         Quick smoke test (tests + kernel)"
+	@echo "    make check         Full quality check (tests + lint + kernel)"
+	@echo "    make control-audit Control metalayer compliance audit"
+	@echo "    make bstack-check  Full bstack harness validation"
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    make clean         Remove build artifacts"
