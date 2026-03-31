@@ -4,9 +4,10 @@
 
 Open-source edge AI agent for autonomous renewable energy microgrid management. Targets Raspberry Pi 4/5 deployment in Colombia's Zonas No Interconectadas (ZNI) -- disconnected communities with solar+battery+diesel hybrid microgrids.
 
-- **Language**: Python 3.11+, asyncio throughout
+- **Languages**: Rust (kernel daemon, production), Python 3.11+ (prototype, ML worker, simulation)
 - **Runtime**: Raspberry Pi OS Lite (64-bit), ARM64
-- **Design principle**: Edge-first, offline-capable. No cloud dependency in the critical control path.
+- **Design principle**: Agentic-native — the LLM IS the reasoning core, tools for sensing/dispatch/KG, deterministic safety gates. Edge-first, offline-capable. No cloud dependency in the critical control path.
+- **Agentic architecture**: See [docs/agentic-architecture.md](docs/agentic-architecture.md) for the authoritative design doc (BitNet 2B for edge reasoning, tiered reasoning hierarchy, EGRI self-improvement loop).
 - **Research context**: MAIA capstone at Universidad de los Andes, TICSw research group (A1, Minciencias)
 
 ## Architecture
@@ -14,16 +15,39 @@ Open-source edge AI agent for autonomous renewable energy microgrid management. 
 ### Module Map
 
 ```
-src/
-+-- agent.py          Main async control loop & orchestrator
-+-- devices.py        Hardware abstraction layer (Modbus RTU, VE.Direct, simulated)
-+-- forecast.py       TFLite LSTM models for solar & demand forecasting
-+-- dispatch.py       LP optimizer via scipy.optimize.linprog
-+-- knowledge.py      SQLite knowledge graph for territorial context
-+-- sync.py           MQTT fleet sync with store-and-forward queue
-+-- autonomic.py      Safety constraints & homeostasis controller
-+-- dashboard.py      Local web dashboard (FastAPI, lightweight)
-+-- telemetry.py      Structured event logging & metrics
+kernel/src/              Rust daemon (production target, ~15MB binary)
++-- main.rs              Tokio async runtime & agentic control loop
++-- devices.rs           Hardware abstraction (Modbus RTU, VE.Direct)
++-- dispatch.rs          LP optimizer (good_lp)
++-- autonomic.rs         Safety gates & homeostasis controller
++-- knowledge.rs         Knowledge graph (rusqlite/SQLite)
++-- journal.rs           Event journal (redb, crash-safe — Lago equivalent)
++-- ml_bridge.rs         IPC bridge to Python ML worker
++-- dashboard.rs         Local dashboard (axum + HTMX)
++-- sync.rs              MQTT fleet sync (rumqttc)
++-- config.rs            TOML config loader (serde)
++-- tools/               Protocol drivers (modbus.rs, vedirect.rs)
+
+ml/                      Python ML worker (spawned on demand by kernel)
++-- forecast.py          TFLite LSTM inference (solar & demand)
++-- worker.py            IPC worker process (stdin/stdout or Unix socket)
+
+prototype/src/           Python prototype (reference implementation, hackable)
++-- agent.py             Main async control loop & orchestrator
++-- devices.py           Hardware abstraction (Modbus RTU, VE.Direct, simulated)
++-- dispatch.py          LP optimizer via scipy.optimize.linprog
++-- knowledge.py         SQLite knowledge graph for territorial context
++-- sync.py              MQTT fleet sync with store-and-forward queue
++-- autonomic.py         Safety constraints & homeostasis controller
++-- dashboard.py         Local web dashboard (FastAPI, lightweight)
+
+prototype/tests/         pytest test suite for prototype
+
+sim/                     Simulation framework
++-- run.py               Simulation runner
++-- scenario.py          Scenario definitions (climate zones, equipment configs)
++-- controllers.py       Control strategies for benchmarking
++-- metrics.py           Performance metrics & comparison
 
 config/
 +-- site.example.toml    Site identity, grid topology, autonomic setpoints
@@ -33,10 +57,10 @@ data/
 +-- models/              TFLite model files
 +-- sync-queue/          Offline MQTT queue (SQLite WAL)
 
-deploy/                  Systemd units, install scripts
+deploy/                  Systemd units, Dockerfile, install scripts
 scripts/                 Health checks, calibration, utilities
-tests/                   pytest test suite
-docs/                    Architecture, DIY guide, conversations
+schema/                  Knowledge graph SQL schema
+docs/                    Architecture docs (agentic-architecture, system-architecture, etc.)
 ```
 
 ### Control Loop Hierarchy
@@ -106,7 +130,19 @@ TelemetryLogger.record()   -- append to SQLite journal
 
 ### Dependencies
 
-Core (must run on RPi):
+**Rust kernel** (see `kernel/Cargo.toml`):
+- `tokio` -- async runtime
+- `tokio-modbus` -- Modbus RTU communication
+- `rumqttc` -- MQTT client for fleet sync
+- `redb` -- event journal (crash-safe embedded DB)
+- `rusqlite` -- knowledge graph (SQLite)
+- `axum` -- local dashboard
+- `good_lp` -- LP dispatch optimizer
+- `serde` + `toml` -- config parsing
+- `tracing` -- structured logging
+- `sd-notify` -- systemd watchdog integration
+
+**Python prototype/ML** (must run on RPi):
 - `numpy` -- numerical operations
 - `scipy` -- LP solver (`scipy.optimize.linprog`)
 - `tflite-runtime` -- ML inference (not full TensorFlow)
@@ -140,7 +176,7 @@ Mapping the 7 bstack primitives to this project:
 
 ## Control Kernel Integration
 
-The `autonomic.py` module IS the control kernel for this project. It implements a homeostasis controller inspired by biological autonomic nervous systems.
+The Autonomic module (`kernel/src/autonomic.rs` in Rust, `prototype/src/autonomic.py` in Python) IS the control kernel for this project. It implements a homeostasis controller inspired by biological autonomic nervous systems. In the agentic architecture, Autonomic is Tier 1 (deterministic reflex) -- it validates every tool call from the LLM reasoning core (Tier 2) and has absolute veto power. See [docs/agentic-architecture.md](docs/agentic-architecture.md) for the tiered reasoning hierarchy (Tier 1: Reflex, Tier 2: BitNet 2B, Tier 3: Qwen 3B, Tier 4: Claude API).
 
 ### Setpoints
 
@@ -183,17 +219,23 @@ Predicted (forecast)  vs  Actual (telemetry)
 ## Testing
 
 ```bash
-# Run all tests
+# Run all Python prototype tests
 make test
 
 # Run with verbose output
-pytest -v
+pytest prototype/tests/ -v
 
 # Run specific test module
-pytest tests/test_devices.py
+pytest prototype/tests/test_devices.py
+
+# Run Rust kernel tests
+cd kernel && cargo test
 
 # Run in simulation mode for integration testing
 make simulate
+
+# Run simulation framework benchmarks
+python sim/run.py
 ```
 
 ### Test Strategy
@@ -206,12 +248,27 @@ make simulate
 ## Commands
 
 ```bash
-make test          # Run pytest suite
+# Python prototype & ML
+make test          # Run pytest suite (prototype/tests/)
 make simulate      # Run agent in simulation mode
 make lint          # Ruff linter check
 make format        # Ruff auto-format
+make typecheck     # mypy type checking
+
+# Rust kernel
+cd kernel && cargo build --release   # Build production binary
+cd kernel && cargo test              # Run kernel tests
+
+# Simulation framework
+python sim/run.py                    # Run simulation benchmarks
+
+# Deployment
 make deploy-rpi    # Deploy to connected RPi via SSH (requires MICROGRID_HOST env var)
 make docker-build  # Build test container
 make docker-run    # Run test container
 make health        # Run health-check.sh on local or remote RPi
 ```
+
+> **Note**: The Makefile targets for `test` and `lint` currently reference `src/` and `tests/`
+> at the repo root. These paths need updating to `prototype/src/` and `prototype/tests/`
+> to match the current directory structure.

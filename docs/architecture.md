@@ -2,6 +2,13 @@
 
 Technical architecture for the microgrid-agent system.
 
+> **Note**: This document covers protocol details, hardware abstraction, forecasting,
+> dispatch, and fleet sync in depth. For the broader system design, see also:
+> - [agentic-architecture.md](agentic-architecture.md) -- agentic-native framing, tiered
+>   reasoning hierarchy, BitNet edge reasoning, EGRI self-improvement (authoritative design doc)
+> - [system-architecture.md](system-architecture.md) -- three-plane architecture diagram,
+>   fleet topology, data flow, technology stack map
+
 ---
 
 ## Design Principles
@@ -342,24 +349,28 @@ These are enforced in code and cannot be overridden by configuration:
 |                                                  |
 |  systemd service: microgrid-agent.service         |
 |  +--------------------------------------------+ |
-|  | Python 3.11 venv                            | |
+|  | Rust kernel (single static binary, ~15MB)   | |
 |  |                                             | |
-|  |  agent.py (main loop)                       | |
-|  |    +-- devices.py (HAL)                     | |
-|  |    +-- forecast.py (TFLite)                 | |
-|  |    +-- dispatch.py (LP solver)              | |
-|  |    +-- autonomic.py (safety)                | |
-|  |    +-- knowledge.py (SQLite)                | |
-|  |    +-- sync.py (MQTT)                       | |
-|  |    +-- dashboard.py (FastAPI :8080)         | |
-|  |    +-- telemetry.py (logging)               | |
+|  |  main.rs (tokio async control loop)         | |
+|  |    +-- devices.rs (HAL: Modbus, VE.Direct)  | |
+|  |    +-- dispatch.rs (LP solver: good_lp)     | |
+|  |    +-- autonomic.rs (safety gates)          | |
+|  |    +-- knowledge.rs (SQLite KG: rusqlite)   | |
+|  |    +-- journal.rs (event journal: redb)     | |
+|  |    +-- ml_bridge.rs (IPC to Python ML)      | |
+|  |    +-- dashboard.rs (axum + HTMX :8080)     | |
+|  |    +-- sync.rs (MQTT: rumqttc)              | |
+|  +--------------------------------------------+ |
+|  | Python ML worker (spawned on demand)        | |
+|  |    +-- forecast.py (TFLite LSTM)            | |
+|  |    +-- worker.py (IPC process)              | |
 |  +--------------------------------------------+ |
 |                                                  |
 |  /var/lib/microgrid-agent/                       |
-|    +-- telemetry.db    (event journal)           |
+|    +-- journal.redb    (event journal)           |
 |    +-- knowledge.db    (community context)       |
 |    +-- sync-queue.db   (outbound queue)          |
-|    +-- models/         (TFLite weights)          |
+|    +-- models/         (TFLite + BitNet weights)  |
 |                                                  |
 +--------------------------------------------------+
     |           |           |           |
@@ -369,6 +380,9 @@ These are enforced in code and cannot be overridden by configuration:
   BMS        MPPT        BH1750     adapters
   Genset                 DS18B20
 ```
+
+> **Note**: The Python prototype (`prototype/`) provides an equivalent architecture in
+> Python for rapid experimentation. For production deployments, use the Rust kernel.
 
 ### Fleet (Multiple Nodes)
 

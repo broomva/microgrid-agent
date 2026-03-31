@@ -8,15 +8,18 @@
 ![Platform: RPi 4/5](https://img.shields.io/badge/Platform-RPi%204%2F5-red.svg)
 ![Status: Active Development](https://img.shields.io/badge/Status-Active%20Development-yellow.svg)
 
-## Architecture
+## Three-Layer Architecture
 
 ```
 kernel/    — Rust daemon (always-on, no GC, ~15MB binary)
              Sensors, dispatch, safety, journal, dashboard, fleet sync
+             Agentic reasoning core via BitNet 2B LLM on-device
 ml/        — Python ML worker (spawned on demand by kernel)
              TFLite LSTM forecasting, model retraining
 prototype/ — Python prototype (reference implementation, hackable)
              Full agent in Python for rapid experimentation
+sim/       — Simulation framework (Python)
+             Scenario definitions, controller benchmarking, metrics
 ```
 
 ---
@@ -55,11 +58,11 @@ Architecture Overview
     +-------+-------+     +-------+-------+      +-------+-------+
     | Agent Core    |     | Agent Core    |      | Agent Core    |
     | +----------+  |     | +----------+  |      | +----------+  |
-    | | Forecast |  |     | | Forecast |  |      | | Forecast |  |
-    | | (TFLite) |  |     | | (TFLite) |  |      | | (TFLite) |  |
+    | | LLM      |  |     | | LLM      |  |      | | LLM      |  |
+    | | Reasoning|  |     | | Reasoning|  |      | | Reasoning|  |
     | +----------+  |     | +----------+  |      | +----------+  |
-    | | Dispatch |  |     | | Dispatch |  |      | | Dispatch |  |
-    | | (LP opt) |  |     | | (LP opt) |  |      | | (LP opt) |  |
+    | | Tools:   |  |     | | Tools:   |  |      | | Tools:   |  |
+    | | LSTM, LP |  |     | | LSTM, LP |  |      | | LSTM, LP |  |
     | +----------+  |     | +----------+  |      | +----------+  |
     | | Autonomic|  |     | | Autonomic|  |      | | Autonomic|  |
     | | (safety) |  |     | | (safety) |  |      | | (safety) |  |
@@ -75,14 +78,18 @@ Architecture Overview
 
 ### Key Capabilities
 
-- **ML Forecasting**: TensorFlow Lite LSTM models for solar irradiance and demand prediction. Inference in <0.5ms on RPi 5.
+- **Agentic Reasoning Core**: LLM-based decision making (BitNet 2B on-device, ~0.4 GB RAM, 29ms decode latency) with tiered escalation to larger models. The LLM reasons about the situation and calls tools; it IS the controller, not an add-on.
+- **ML Forecasting Tools**: TensorFlow Lite LSTM models for solar irradiance and demand prediction. Inference in <0.5ms on RPi 5. Used as a tool by the reasoning core.
 - **LP Dispatch Optimization**: Linear programming solver prioritizes solar, then battery, then diesel -- minimizing fuel consumption while meeting all loads.
 - **Knowledge Graph**: SQLite-backed territorial context (<100MB) encodes community patterns -- market days, festivals, rainy seasons -- improving forecast accuracy.
-- **Autonomic Safety Layer**: Hard safety constraints (SOC limits, diesel runtime caps, load shedding priority) that the ML layer can never override.
+- **Autonomic Safety Layer**: Hard safety constraints (SOC limits, diesel runtime caps, load shedding priority) enforced in deterministic Rust code. The LLM reasoning core can NEVER override these gates.
 - **Fleet Sync**: MQTT-based store-and-forward telemetry. Queues data locally during connectivity outages, syncs when a link is available.
+- **EGRI Self-Improvement**: Evaluator-governed recursive improvement -- the agent compares its predictions to outcomes and adjusts its own setpoints over time.
 - **100% Offline Operation**: Every feature works without internet. Connectivity is optional and used only for fleet coordination.
 
 ## Quick Start
+
+### Prototype Mode (Python — quickest way to explore)
 
 ```bash
 # Clone the repository
@@ -93,13 +100,21 @@ cd microgrid-agent
 pip install -e ".[dev]"
 
 # Run in simulation mode (no hardware needed)
-python -m microgrid_agent --config config/site.example.toml --simulate
-
-# Or use make
 make simulate
+
+# Or run the simulation framework directly
+python sim/run.py
 ```
 
 Simulation mode creates virtual solar panels, batteries, a diesel generator, and community loads with realistic diurnal patterns. You can explore the full control loop without any physical hardware.
+
+### Kernel Mode (Rust — production target)
+
+```bash
+cd kernel
+cargo build --release
+# The ~15MB static binary runs on RPi with no runtime dependencies
+```
 
 ## Hardware Setup
 
@@ -172,20 +187,27 @@ slave_id = 1
 
 ## Architecture
 
+> **Agentic-native framing**: The microgrid agent is not an ML model with a control loop
+> bolted on. It is an autonomous AI agent (a Life/Arcan instance) with an LLM reasoning
+> core, tools for sensing/dispatch/KG, and deterministic safety gates. The LSTM and LP
+> solver are tools the agent uses, not the agent itself. See
+> [docs/agentic-architecture.md](docs/agentic-architecture.md) for the full rationale.
+
 ```
 Multi-Rate Control Loop
 =======================
 
     +----------+     +----------+     +----------+
-    | 100ms    |     | 1s       |     | 15min    |
-    | Safety   |---->| Device   |---->| Forecast |
-    | Monitor  |     | Polling  |     | + Optim  |
+    | 100ms    |     | 1s       |     | 5min     |
+    | Safety   |---->| Device   |---->| Agent    |
+    | Reflex   |     | Polling  |     | Reasoning|
+    | (Tier 1) |     |          |     | (Tier 2) |
     +----------+     +----------+     +----------+
          |                |                |
          v                v                v
-    Hard limits      Read sensors     ML inference
-    SOC bounds       Update state     LP dispatch
-    Fault detect     Log telemetry    Schedule plan
+    Hard limits      Read sensors     LLM reasons
+    SOC bounds       Update state     Calls tools
+    Fault detect     Log telemetry    Autonomic validates
     Emergency shed   Dashboard push   Sync fleet
 ```
 
@@ -193,19 +215,43 @@ Multi-Rate Control Loop
 Module Map
 ==========
 
-    src/
-    +-- agent.py          Main control loop & orchestrator
-    +-- devices.py        Hardware abstraction (Modbus, VE.Direct, simulated)
-    +-- forecast.py       TFLite LSTM solar & demand forecasting
-    +-- dispatch.py       LP optimizer (scipy.optimize.linprog)
-    +-- knowledge.py      SQLite knowledge graph (community context)
-    +-- sync.py           MQTT fleet sync (store-and-forward)
-    +-- autonomic.py      Safety constraints & homeostasis controller
-    +-- dashboard.py      Local web dashboard (FastAPI, lightweight)
-    +-- telemetry.py      Structured event logging & metrics
+    kernel/src/              Rust daemon (always-on, ~15MB binary)
+    +-- main.rs              Tokio async runtime & control loop
+    +-- devices.rs           Hardware abstraction (Modbus, VE.Direct)
+    +-- dispatch.rs          LP optimizer (good_lp)
+    +-- autonomic.rs         Safety gates & homeostasis
+    +-- knowledge.rs         Knowledge graph (rusqlite)
+    +-- journal.rs           Event journal (redb, crash-safe)
+    +-- ml_bridge.rs         IPC bridge to Python ML worker
+    +-- dashboard.rs         Local dashboard (axum + HTMX)
+    +-- sync.rs              MQTT fleet sync (rumqttc)
+    +-- config.rs            TOML config loader
+    +-- tools/               Modbus RTU & VE.Direct protocol drivers
+
+    ml/                      Python ML worker (spawned on demand)
+    +-- forecast.py          TFLite LSTM inference
+    +-- worker.py            IPC worker process
+
+    prototype/src/           Python prototype (reference implementation)
+    +-- agent.py             Main control loop & orchestrator
+    +-- devices.py           Hardware abstraction (simulated + Modbus)
+    +-- dispatch.py          LP optimizer (scipy.optimize.linprog)
+    +-- knowledge.py         SQLite knowledge graph
+    +-- autonomic.py         Safety constraints
+    +-- dashboard.py         Local web dashboard (FastAPI)
+    +-- sync.py              MQTT fleet sync
+
+    sim/                     Simulation framework
+    +-- run.py               Simulation runner
+    +-- scenario.py          Scenario definitions
+    +-- controllers.py       Control strategies for benchmarking
+    +-- metrics.py           Performance metrics & comparison
 ```
 
-For the full technical architecture reference, see [docs/architecture.md](docs/architecture.md).
+For the full technical architecture reference, see:
+- [docs/agentic-architecture.md](docs/agentic-architecture.md) -- agentic-native design (authoritative)
+- [docs/system-architecture.md](docs/system-architecture.md) -- three-plane system map
+- [docs/architecture.md](docs/architecture.md) -- protocol details & hardware abstraction
 
 ## DIY Guide
 
@@ -224,20 +270,24 @@ No prior experience with energy systems required. The simulation mode lets you l
 ## Development
 
 ```bash
-# Install with dev dependencies
+# Install Python dev dependencies
 pip install -e ".[dev]"
 
-# Run tests
+# Run Python tests (prototype + ML)
 make test
 
-# Lint
+# Lint & format Python code
 make lint
-
-# Format
 make format
 
 # Run simulation
 make simulate
+
+# Build Rust kernel
+cd kernel && cargo build --release
+
+# Run sim framework for benchmarking
+python sim/run.py
 ```
 
 ## Contributing
@@ -262,10 +312,10 @@ Contributions are welcome. This project exists to make autonomous energy managem
 
 ### Code Standards
 
-- Python 3.11+ with type hints on all functions
-- asyncio for all I/O operations
-- Ruff for linting and formatting
-- pytest for testing
+- **Rust kernel**: stable Rust, tokio async runtime, tracing for structured logging
+- **Python prototype/ML**: Python 3.11+ with type hints on all functions, asyncio for I/O
+- Ruff for Python linting and formatting
+- pytest for Python testing
 - Structured JSON logging (no print statements)
 
 ## License

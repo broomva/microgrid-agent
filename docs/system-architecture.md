@@ -3,6 +3,11 @@
 > From a single photon hitting a solar panel to an IPSE operator asking
 > "which sites need attention today?" in natural language.
 
+> **See also**: [agentic-architecture.md](agentic-architecture.md) for the agentic-native
+> design rationale, tiered reasoning hierarchy, BitNet edge reasoning, and EGRI
+> self-improvement loop. This document covers the three-plane system map, fleet topology,
+> and technology stack.
+
 ---
 
 ## 1. The Three Planes
@@ -410,6 +415,16 @@ Value per node:            Value per node:             No cold start.
 │          │              │ Called via subprocess, not always-on   │
 │          │              │ Model: <1MB TFLite, <20MB RAM          │
 │          │              │ Inference: <0.5ms per forecast         │
+│          │              │                                        │
+├──────────┼──────────────┼───────────────────────────────────────┤
+│          │              │                                        │
+│ REASONING│ BitNet /     │ BitNet 2B (1.58-bit ternary, 0.4 GB)  │
+│ CORE     │ llama.cpp    │ ARM NEON optimized kernels             │
+│          │              │ Qwen 2.5 3B Q4 (fallback, 2.2 GB)     │
+│          │              │                                        │
+│          │              │ LLM-as-controller: reasons about state │
+│          │              │ Uses LSTM/LP/KG as tools, not hardcoded│
+│          │              │ See docs/agentic-architecture.md        │
 │          │              │                                        │
 ├──────────┼──────────────┼───────────────────────────────────────┤
 │          │              │                                        │
