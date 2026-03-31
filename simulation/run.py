@@ -13,7 +13,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 
 from .controllers import Controller, ForecastController, KGForecastController, RuleBasedController
@@ -106,7 +105,7 @@ def main():
     print("  MICROGRID AGENT — CONTROLLER COMPARISON SIMULATION")
     print(f"  Sites: {', '.join(s.name for s in sites)}")
     print(f"  Seeds: {args.seed}")
-    print(f"  Controllers: rule-based, forecast, forecast+kg")
+    print("  Controllers: rule-based, forecast, forecast+kg")
     print("=" * 72)
 
     run_all(sites, args.seed)

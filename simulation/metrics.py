@@ -138,12 +138,11 @@ def compare(results: dict[str, SimMetrics]) -> str:
 
     site_name = next(iter(results.values())).site_name
     controllers = list(results.keys())
-    baseline = results[controllers[0]]
 
     lines = [
         f"\n{'='*72}",
         f"  COMPARISON REPORT — {site_name}",
-        f"  Simulation: 8,760 hours (1 year)",
+        "  Simulation: 8,760 hours (1 year)",
         f"{'='*72}",
         "",
         f"  {'Metric':<30s}" + "".join(f"  {c:>14s}" for c in controllers),

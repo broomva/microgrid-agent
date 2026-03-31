@@ -154,7 +154,6 @@ class ForecastController(Controller):
         solar_forecast = []
         demand_forecast = []
         for h_offset in range(1, 25):
-            target_hour = current_hour + h_offset
             # Find the reading from 24h ago at this hour
             lookback = current_hour - 24 + h_offset
             match = None
