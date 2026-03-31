@@ -3,9 +3,21 @@
 **Open-source edge AI agent for autonomous renewable energy microgrid management.**
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
-![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)
+![Rust](https://img.shields.io/badge/Kernel-Rust-orange.svg)
+![Python 3.11+](https://img.shields.io/badge/ML-Python%203.11%2B-blue.svg)
 ![Platform: RPi 4/5](https://img.shields.io/badge/Platform-RPi%204%2F5-red.svg)
 ![Status: Active Development](https://img.shields.io/badge/Status-Active%20Development-yellow.svg)
+
+## Architecture
+
+```
+kernel/    — Rust daemon (always-on, no GC, ~15MB binary)
+             Sensors, dispatch, safety, journal, dashboard, fleet sync
+ml/        — Python ML worker (spawned on demand by kernel)
+             TFLite LSTM forecasting, model retraining
+prototype/ — Python prototype (reference implementation, hackable)
+             Full agent in Python for rapid experimentation
+```
 
 ---
 
