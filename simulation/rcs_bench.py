@@ -40,7 +40,7 @@ from .controllers import RuleBasedController
 from .metrics import SimMetrics
 from .perturbations import PerturbationInjector, cloud_burst_perturbation
 from .rcs_controller import RCSController
-from .rcs_lyapunov import battery_recovery_window, fit_perturbation_recovery, v0
+from .rcs_lyapunov import fit_perturbation_recovery, v0
 from .scenario import COQUI, INIRIDA, PROVIDENCIA, ScenarioEngine, SiteProfile
 
 
@@ -291,7 +291,7 @@ def print_headline(aggregate: dict, perturbation_results: dict | None = None) ->
     if "flat" in aggregate:
         flat_d = aggregate["flat"]["diesel_liters"]["mean"]
         flat_u = aggregate["flat"]["unserved_kwh"]["mean"]
-        print(f"\nΔ vs flat (negative = better):")
+        print("\nΔ vs flat (negative = better):")
         for cond, s in aggregate.items():
             if cond == "flat":
                 continue
@@ -302,7 +302,7 @@ def print_headline(aggregate: dict, perturbation_results: dict | None = None) ->
                   f"unserved Δ = {d_unserved:+.2f} kWh")
     if perturbation_results:
         print("\n=== λ̂_0 from cloud-burst perturbation ===")
-        print(f"  paper analytic: λ_0 = 1.4554 /s")
+        print("  paper analytic: λ_0 = 1.4554 /s")
         for cond, r in perturbation_results.items():
             lam = r.get("lambda_hat", float("nan"))
             std = r.get("std_err", float("nan"))
